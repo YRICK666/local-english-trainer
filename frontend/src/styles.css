@@ -591,3 +591,141 @@ select {
   .question-pane { padding: 18px; }
   .paragraphs p { font-size: 17px; line-height: 1.82; }
 }
+.import-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 16px;
+}
+
+.import-editor {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.import-help {
+  color: #667267;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.json-input {
+  width: 100%;
+  min-height: 340px;
+  padding: 14px 16px;
+  border: 1px solid #ced8ca;
+  border-radius: 8px;
+  background: #fffefb;
+  color: #253129;
+  font: inherit;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.json-input:focus {
+  outline: 2px solid rgba(49, 95, 59, 0.16);
+  border-color: #7d9a74;
+}
+
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.status-message {
+  padding: 10px 12px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  line-height: 1.6;
+}
+
+.status-message.success {
+  border-color: #9fbea0;
+  background: #edf6e9;
+  color: #2f6b3b;
+}
+
+.status-message.warning {
+  border-color: #e0c5bd;
+  background: #fcf2ef;
+  color: #8a3d32;
+}
+
+.status-message.error {
+  border-color: #e0c5bd;
+  background: #fcf2ef;
+  color: #8a3d32;
+}
+
+.import-result-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #dfe3da;
+  border-radius: 8px;
+  background: #fffefb;
+}
+
+.import-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.import-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.import-preview-grid span,
+.import-preview-block {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #e0e4db;
+  border-radius: 6px;
+  background: #fbfcf8;
+}
+
+.import-preview-grid strong,
+.import-preview-block strong {
+  font-size: 12px;
+  color: #6b756a;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.import-preview-grid small,
+.import-preview-block p {
+  margin: 0;
+  color: #29352d;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.validation-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #6f352d;
+}
+
+.validation-list li + li {
+  margin-top: 6px;
+}
+
+@media (max-width: 1060px) {
+  .import-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .import-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .json-input {
+    min-height: 280px;
+  }
+}

@@ -1,8 +1,26 @@
 export type OptionLabel = "A" | "B" | "C" | "D";
 
+export type ImportValidationStats = {
+  passage_count: number;
+  paragraph_count: number;
+  question_count: number;
+};
+
+export type ImportValidationResult = {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  stats: ImportValidationStats;
+};
+
 export type ReadingPackSummary = {
   pack_id: string;
   title: string;
+  description?: string;
+  language?: string;
+  level?: string;
+  tags?: string[];
+  source?: Record<string, unknown>;
   passage_count: number;
   question_count: number;
 };
@@ -40,9 +58,21 @@ export type ReadingQuestion = {
 };
 
 export type ReadingPack = ReadingPackSummary & {
-  language?: string;
+  metadata?: Record<string, unknown>;
   passages: Passage[];
   questions: ReadingQuestion[];
+};
+
+export type ReadingPackDetail = ReadingPackSummary & {
+  metadata: Record<string, unknown>;
+  passages: Passage[];
+  questions: ReadingQuestion[];
+};
+
+export type ReadingPackImportResponse = {
+  imported: boolean;
+  pack: ReadingPackDetail;
+  validation: ImportValidationResult;
 };
 
 export type AttemptAnswerIn = {

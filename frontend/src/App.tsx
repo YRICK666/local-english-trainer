@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { ApiError, getPracticeAttempt, getReadingPack, listPracticeAttempts, listReadingPacks, submitPracticeAttempt } from "./api";
+import { ApiError, getPracticeAttempt, getReadingPack, importReadingPack, listPracticeAttempts, listReadingPacks, submitPracticeAttempt, validateReadingPack } from "./api";
 import { mockReadingPack } from "./mockData";
-import type { PracticeAttemptDetail, PracticeAttemptSummary, ReadingPack, ReadingPackSummary } from "./types";
+import type { ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingPack, ReadingPackImportResponse, ReadingPackSummary } from "./types";
 import "./styles.css";
 
-type ViewKey = "dashboard" | "library" | "workspace" | "attempts" | "vocabulary" | "sentences" | "settings";
+type ViewKey = "dashboard" | "import" | "library" | "workspace" | "attempts" | "vocabulary" | "sentences" | "settings";
 
 const navItems: { key: ViewKey; label: string; helper: string }[] = [
   { key: "dashboard", label: "Dashboard", helper: "学习首页" },
   { key: "library", label: "Library", helper: "阅读材料" },
+  { key: "import", label: "Import", helper: "导入材料" },
   { key: "workspace", label: "Workspace", helper: "阅读训练" },
   { key: "attempts", label: "Attempts", helper: "练习记录" },
   { key: "vocabulary", label: "Vocabulary", helper: "本地词库" },
@@ -47,6 +48,110 @@ function getAttemptHeading(attempt: Pick<PracticeAttemptSummary, "pack_id" | "cr
   return `${attempt.pack_id} · ${getAttemptDisplayTime(attempt.created_at)}`;
 }
 
+type ImportPreview = {
+  packId: string;
+  title: string;
+  description: string;
+  language: string;
+  level: string;
+  source: string;
+  passageCount: number;
+  questionCount: number;
+  firstPassageTitle: string;
+  firstPassageText: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function textField(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "-";
+}
+
+function listField(value: unknown) {
+  return Array.isArray(value) ? value : [];
+}
+
+function previewImportPayload(payload: Record<string, unknown>): ImportPreview {
+  const passages = listField(payload.passages).filter(isRecord);
+  const questions = listField(payload.questions).filter(isRecord);
+  const firstPassage = passages[0];
+  const firstParagraphs = firstPassage ? listField(firstPassage.paragraphs).filter(isRecord) : [];
+  const passagePreview = firstParagraphs
+    .map((paragraph) => textField(paragraph.text))
+    .filter((line) => line !== "-")
+    .slice(0, 2)
+    .join(" / ");
+  const contentPreview = firstPassage ? textField(firstPassage.content) : "-";
+  const source = isRecord(payload.source) && Object.keys(payload.source).length > 0 ? JSON.stringify(payload.source) : "-";
+
+  return {
+    packId: textField(payload.pack_id),
+    title: textField(payload.title),
+    description: textField(payload.description),
+    language: textField(payload.language),
+    level: textField(payload.level),
+    source,
+    passageCount: passages.length,
+    questionCount: questions.length,
+    firstPassageTitle: firstPassage ? textField(firstPassage.title) : "-",
+    firstPassageText: passagePreview || contentPreview
+  };
+}
+
+function parseImportDraft(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { payload: null, error: "请先粘贴 reading_pack JSON", preview: null as ImportPreview | null };
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (!isRecord(parsed)) {
+      return { payload: null, error: "reading_pack JSON 必须是对象", preview: null as ImportPreview | null };
+    }
+    return { payload: parsed, error: null, preview: previewImportPayload(parsed) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "无法解析 JSON";
+    return { payload: null, error: `JSON 格式无法解析：${message}`, preview: null as ImportPreview | null };
+  }
+}
+
+function isImportValidationResult(value: unknown): value is ImportValidationResult {
+  return isRecord(value)
+    && typeof value.valid === "boolean"
+    && Array.isArray(value.errors)
+    && Array.isArray(value.warnings)
+    && isRecord(value.stats)
+    && typeof value.stats.passage_count === "number"
+    && typeof value.stats.paragraph_count === "number"
+    && typeof value.stats.question_count === "number";
+}
+
+function formatImportError(detail: unknown) {
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (isImportValidationResult(detail)) {
+    if (detail.errors.length > 0) {
+      return detail.errors.join("；");
+    }
+    return detail.valid ? "校验通过" : "校验未通过";
+  }
+  if (isRecord(detail)) {
+    const message = textField(detail.message);
+    if (message !== "-") {
+      return message;
+    }
+    const errors = listField(detail.errors).filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+    if (errors.length > 0) {
+      return errors.join("；");
+    }
+  }
+  return "后端未连接，暂时无法校验或导入，请先启动本地后端";
+}
+
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
     <div className="empty-state">
@@ -73,11 +178,11 @@ function App() {
 
   const passage = pack.passages[0];
   const canSubmit = useMemo(
-    () => pack.questions.length > 0 && pack.questions.every((question) => selectedAnswers[question.question_id]),
+    () => pack.questions.length > 0 && pack.questions.every((question) => Boolean(selectedAnswers[question.question_id])),
     [pack.questions, selectedAnswers]
   );
   const answeredCount = useMemo(
-    () => pack.questions.filter((question) => selectedAnswers[question.question_id]).length,
+    () => pack.questions.filter((question) => Boolean(selectedAnswers[question.question_id])).length,
     [pack.questions, selectedAnswers]
   );
   const result = latestAttempt ?? selectedAttempt;
@@ -92,12 +197,17 @@ function App() {
     }
   }
 
+  async function refreshReadingPacks() {
+    const summaries = await listReadingPacks();
+    setPacks(summaries);
+    setIsUsingFallback(false);
+    return summaries;
+  }
+
   async function loadInitialData() {
     setWorkspaceError(null);
     try {
-      const summaries = await listReadingPacks();
-      setPacks(summaries);
-      setIsUsingFallback(false);
+      const summaries = await refreshReadingPacks();
       if (summaries.length > 0) {
         const firstPack = await getReadingPack(summaries[0].pack_id);
         setPack(firstPack);
@@ -148,7 +258,7 @@ function App() {
     try {
       const attempt = await submitPracticeAttempt(pack.pack_id, pack.questions.map((question) => ({
         question_id: question.question_id,
-        selected_answer: selectedAnswers[question.question_id]
+        selected_answer: selectedAnswers[question.question_id] ?? ""
       })));
       setLatestAttempt(attempt);
       setSelectedAttempt(attempt);
@@ -172,6 +282,15 @@ function App() {
       setActiveView("attempts");
     } catch {
       setNotice("后端未连接，无法读取练习详情。");
+    }
+  }
+
+  async function handleOpenImportedPack(packId: string) {
+    try {
+      await refreshReadingPacks();
+      await loadPack(packId, "workspace");
+    } catch {
+      setNotice("材料已导入，但刷新列表时遇到问题，请稍后重试。");
     }
   }
 
@@ -220,6 +339,9 @@ function App() {
             onOpenAttempt={openAttempt}
           />
         )}
+        {activeView === "import" && (
+          <ImportView onOpenImportedPack={handleOpenImportedPack} />
+        )}
         {activeView === "library" && (
           <LibraryView
             packs={packs}
@@ -264,6 +386,212 @@ function App() {
         </>)}
       </main>
     </div>
+  );
+}
+
+function ImportView({ onOpenImportedPack }: { onOpenImportedPack: (packId: string) => Promise<void>; }) {
+  const [jsonText, setJsonText] = useState("");
+  const [validationResult, setValidationResult] = useState<ImportValidationResult | null>(null);
+  const [importResult, setImportResult] = useState<ReadingPackImportResponse | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const draft = useMemo(() => parseImportDraft(jsonText), [jsonText]);
+  const preview = draft.preview;
+
+  async function handleValidate() {
+    const nextDraft = parseImportDraft(jsonText);
+    setValidationResult(null);
+    setImportResult(null);
+    setImportError(null);
+    if (!nextDraft.payload) {
+      setImportError(nextDraft.error);
+      return;
+    }
+
+    setIsValidating(true);
+    try {
+      const result = await validateReadingPack(nextDraft.payload);
+      setValidationResult(result);
+      setImportError(result.valid ? null : formatImportError(result));
+    } catch (error) {
+      if (error instanceof ApiError) {
+        if (isImportValidationResult(error.detail)) {
+          setValidationResult(error.detail);
+          setImportError(formatImportError(error.detail));
+        } else if (error.status === 409) {
+          setImportError("pack_id 已存在，材料可能已经导入。");
+        } else {
+          setImportError(formatImportError(error.detail));
+        }
+      } else {
+        setImportError("后端未连接，暂时无法校验或导入，请先启动本地后端");
+      }
+    } finally {
+      setIsValidating(false);
+    }
+  }
+
+  async function handleImport() {
+    const nextDraft = parseImportDraft(jsonText);
+    setImportError(null);
+    if (!nextDraft.payload) {
+      setImportResult(null);
+      setImportError(nextDraft.error);
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const result = await importReadingPack(nextDraft.payload);
+      setValidationResult(result.validation);
+      setImportResult(result);
+      setImportError(null);
+    } catch (error) {
+      setImportResult(null);
+      if (error instanceof ApiError) {
+        if (error.status === 409) {
+          setImportError("pack_id 已存在，材料可能已经导入。");
+        } else if (isImportValidationResult(error.detail)) {
+          setValidationResult(error.detail);
+          setImportError(formatImportError(error.detail));
+        } else {
+          setImportError(formatImportError(error.detail));
+        }
+      } else {
+        setImportError("后端未连接，暂时无法校验或导入，请先启动本地后端");
+      }
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  const validationMessage = validationResult
+    ? validationResult.valid
+      ? "校验通过，可以导入。"
+      : "校验未通过，请先修正下面的问题。"
+    : "";
+
+  return (
+    <section className="page-stack">
+      <div className="page-header slim">
+        <div>
+          <p className="eyebrow">Import</p>
+          <h1>导入 reading_pack</h1>
+          <p>粘贴阅读材料 JSON，先校验再导入。导入成功后可刷新 Library，并进入 Workspace 开始阅读作答。</p>
+        </div>
+      </div>
+
+      <div className="content-section import-panel">
+        <div className="import-editor">
+          <label className="import-help" htmlFor="reading-pack-json">reading_pack JSON</label>
+          <textarea
+            id="reading-pack-json"
+            className="json-input"
+            value={jsonText}
+            onChange={(event) => {
+              setJsonText(event.target.value);
+              setValidationResult(null);
+              setImportResult(null);
+              setImportError(null);
+            }}
+            placeholder="请粘贴 reading_pack JSON"
+          />
+          <div className="import-actions">
+            <button type="button" className="secondary-action" onClick={handleValidate} disabled={isValidating || isImporting}>
+              {isValidating ? "校验中……" : "校验"}
+            </button>
+            <button type="button" className="primary-action" onClick={handleImport} disabled={isImporting || isValidating}>
+              {isImporting ? "导入中……" : "导入"}
+            </button>
+          </div>
+          <p className="import-help">支持先在本地校验，再把通过的材料导入 SQLite。空 JSON、非法 JSON 和重复 pack_id 都会显示明确提示。</p>
+          {draft.error && <div className="status-message error">{draft.error}</div>}
+          {importError && <div className="status-message error">{importError}</div>}
+          {validationResult && (
+            <div className={`status-message ${validationResult.valid ? "success" : "warning"}`}>
+              {validationMessage}
+            </div>
+          )}
+        </div>
+
+        <div className="import-result-card">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">Preview</p>
+              <h2>导入预览</h2>
+            </div>
+          </div>
+          {preview ? (
+            <div className="import-preview">
+              <div className="import-preview-grid">
+                <span><strong>pack_id</strong><small>{preview.packId}</small></span>
+                <span><strong>title</strong><small>{preview.title}</small></span>
+                <span><strong>description</strong><small>{preview.description}</small></span>
+                <span><strong>language</strong><small>{preview.language}</small></span>
+                <span><strong>level</strong><small>{preview.level}</small></span>
+                <span><strong>source</strong><small>{preview.source}</small></span>
+                <span><strong>passages</strong><small>{preview.passageCount}</small></span>
+                <span><strong>questions</strong><small>{preview.questionCount}</small></span>
+              </div>
+              <div className="import-preview-block">
+                <strong>第一篇 passage</strong>
+                <p>{preview.firstPassageTitle}</p>
+              </div>
+              <div className="import-preview-block">
+                <strong>前几行文本</strong>
+                <p>{preview.firstPassageText}</p>
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="等待 JSON 输入" description="粘贴 reading_pack JSON 后，这里会显示材料摘要、题目数量和第一篇 passage 的预览。" />
+          )}
+
+          {validationResult && (
+            <div className="import-preview">
+              <div className="import-preview-block">
+                <strong>校验统计</strong>
+                <p>{validationResult.stats.passage_count} passages · {validationResult.stats.paragraph_count} paragraphs · {validationResult.stats.question_count} questions</p>
+              </div>
+              {validationResult.errors.length > 0 && (
+                <div className="import-preview-block">
+                  <strong>错误</strong>
+                  <ul className="validation-list">
+                    {validationResult.errors.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+              {validationResult.warnings.length > 0 && (
+                <div className="import-preview-block">
+                  <strong>警告</strong>
+                  <ul className="validation-list">
+                    {validationResult.warnings.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {importResult && (
+            <div className="import-preview import-result-card">
+              <div className="status-message success">导入成功，Library 已可刷新并打开这份材料。</div>
+              <div className="import-preview-block">
+                <strong>已导入</strong>
+                <p>{importResult.pack.pack_id}</p>
+              </div>
+              <div className="import-preview-block">
+                <strong>接下来</strong>
+                <p>点击下面的按钮，刷新列表并进入 Workspace。</p>
+              </div>
+              <button type="button" className="primary-action" onClick={() => void onOpenImportedPack(importResult.pack.pack_id)}>
+                进入 Workspace
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

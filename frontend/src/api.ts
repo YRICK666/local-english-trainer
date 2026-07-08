@@ -1,4 +1,4 @@
-import type { AttemptAnswerIn, PracticeAttemptDetail, PracticeAttemptSummary, ReadingPack, ReadingPackSummary } from "./types";
+import type { AttemptAnswerIn, PracticeAttemptDetail, PracticeAttemptSummary, ReadingPack, ReadingPackImportResponse, ReadingPackSummary, ImportValidationResult } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -30,6 +30,20 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(response.status, detail);
   }
   return response.json() as Promise<T>;
+}
+
+export function validateReadingPack(payload: unknown) {
+  return requestJson<ImportValidationResult>("/api/import/reading-pack/validate", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function importReadingPack(payload: unknown) {
+  return requestJson<ReadingPackImportResponse>("/api/import/reading-pack", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function listReadingPacks() {
