@@ -1,0 +1,73 @@
+{
+  "schema": "local-reading-pack",
+  "pack_id": "attempt-reading-pack",
+  "title": "Attempt Reading Pack",
+  "description": "Synthetic pack for attempt tests.",
+  "language": "en",
+  "level": "beginner",
+  "source": {
+    "source_type": "user_created",
+    "source_label": "Synthetic fixture",
+    "copyright_scope": "user_created"
+  },
+  "passages": [
+    {
+      "passage_id": "passage-attempt",
+      "material_id": "mat-attempt",
+      "title": "A Small Desk",
+      "content": "Nora keeps a small desk near the window. She reads there every evening.",
+      "paragraphs": [
+        {
+          "paragraph_id": "para-attempt-1",
+          "text": "Nora keeps a small desk near the window.",
+          "order": 1
+        },
+        {
+          "paragraph_id": "para-attempt-2",
+          "text": "She reads there every evening.",
+          "order": 2
+        }
+      ],
+      "order": 1
+    }
+  ],
+  "questions": [
+    {
+      "question_id": "q-attempt-1",
+      "passage_id": "passage-attempt",
+      "question_no": "1",
+      "question_type": "single_choice",
+      "stem": "Where is Nora's desk?",
+      "options": [
+        {"label": "A", "text": "Near the window."},
+        {"label": "B", "text": "In the garden."},
+        {"label": "C", "text": "Beside a river."},
+        {"label": "D", "text": "In a shop."}
+      ],
+      "explanation": "The first paragraph says the desk is near the window."
+    },
+    {
+      "question_id": "q-attempt-2",
+      "passage_id": "passage-attempt",
+      "question_no": "2",
+      "question_type": "single_choice",
+      "stem": "When does Nora read there?",
+      "options": [
+        {"label": "A", "text": "Every morning."},
+        {"label": "B", "text": "Every evening."},
+        {"label": "C", "text": "At noon."},
+        {"label": "D", "text": "Only on Sunday."}
+      ],
+      "explanation": "The second paragraph says she reads there every evening."
+    }
+  ],
+  "answer_key": [
+    {"question_id": "q-attempt-1", "correct_answer": "A", "answer_type": "option", "grading_method": "exact_match"},
+    {"question_id": "q-attempt-2", "correct_answer": "B", "answer_type": "option", "grading_method": "exact_match"}
+  ],
+  "metadata": {
+    "created_at": "2099-01-01T00:00:00Z",
+    "import_method": "manual",
+    "import_status": "ready_for_import"
+  }
+}

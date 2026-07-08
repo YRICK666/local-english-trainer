@@ -1,0 +1,22 @@
+{
+  "name": "local-english-trainer-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.js --configLoader native",
+    "build": "tsc && vite build --config vite.config.js --configLoader native",
+    "preview": "vite preview --config vite.config.js --configLoader native"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
+  }
+}

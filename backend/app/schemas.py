@@ -1,0 +1,111 @@
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class ImportValidationStats(BaseModel):
+    passage_count: int = 0
+    paragraph_count: int = 0
+    question_count: int = 0
+
+
+class ImportValidationResult(BaseModel):
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    stats: ImportValidationStats = Field(default_factory=ImportValidationStats)
+
+
+class ReadingPackSummary(BaseModel):
+    pack_id: str
+    title: str
+    description: str = ""
+    language: str = "en"
+    level: str = ""
+    tags: list[str] = Field(default_factory=list)
+    source: dict[str, Any] = Field(default_factory=dict)
+    passage_count: int = 0
+    question_count: int = 0
+
+
+class ParagraphOut(BaseModel):
+    paragraph_id: str
+    text: str
+    order: int
+
+
+class PassageOut(BaseModel):
+    passage_id: str
+    material_id: str = ""
+    title: str = ""
+    content: str
+    order: int
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    paragraphs: list[ParagraphOut] = Field(default_factory=list)
+
+
+class QuestionOptionOut(BaseModel):
+    option_id: str = ""
+    label: str
+    text: str
+
+
+class QuestionOut(BaseModel):
+    question_id: str
+    passage_id: str
+    question_no: str = ""
+    question_type: str
+    stem: str
+    answer: str
+    analysis: str = ""
+    explanation: str = ""
+    evidence_hint: str = ""
+    tags: list[str] = Field(default_factory=list)
+    score_points: float | None = None
+    options: list[QuestionOptionOut] = Field(default_factory=list)
+
+
+class ReadingPackDetail(ReadingPackSummary):
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    passages: list[PassageOut] = Field(default_factory=list)
+    questions: list[QuestionOut] = Field(default_factory=list)
+
+
+class ReadingPackImportResponse(BaseModel):
+    imported: bool
+    pack: ReadingPackDetail
+    validation: ImportValidationResult
+
+
+class PracticeAttemptAnswerIn(BaseModel):
+    question_id: str
+    selected_answer: str
+
+
+class PracticeAttemptCreate(BaseModel):
+    pack_id: str
+    answers: list[PracticeAttemptAnswerIn]
+
+
+class PracticeAttemptAnswerOut(BaseModel):
+    answer_id: str
+    attempt_id: str
+    question_id: str
+    selected_answer: str
+    correct_answer: str
+    is_correct: bool
+
+
+class PracticeAttemptSummary(BaseModel):
+    attempt_id: str
+    pack_id: str
+    total_questions: int
+    correct_count: int
+    accuracy: float
+    created_at: datetime | None = None
+
+
+class PracticeAttemptDetail(PracticeAttemptSummary):
+    answers: list[PracticeAttemptAnswerOut] = Field(default_factory=list)
