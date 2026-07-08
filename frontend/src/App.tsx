@@ -27,6 +27,26 @@ function formatDate(value?: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function getAccuracyLabel(accuracy: number) {
+  if (accuracy >= 0.85) return "表现优秀";
+  if (accuracy >= 0.6) return "表现稳定";
+  return "需要复盘";
+}
+
+function getAttemptStatus(accuracy: number) {
+  if (accuracy >= 0.85) return "strong";
+  if (accuracy >= 0.6) return "ok";
+  return "review";
+}
+
+function getAttemptDisplayTime(createdAt?: string) {
+  return formatDate(createdAt);
+}
+
+function getAttemptHeading(attempt: Pick<PracticeAttemptSummary, "pack_id" | "created_at">) {
+  return `${attempt.pack_id} · ${getAttemptDisplayTime(attempt.created_at)}`;
+}
+
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
     <div className="empty-state">
@@ -266,30 +286,44 @@ function DashboardView({
 }) {
   return (
     <section className="page-stack">
-      <div className="page-header">
+      <div className="dashboard-hero">
         <div>
           <p className="eyebrow">Dashboard</p>
           <h1>今天从一篇阅读开始</h1>
-          <p>围绕材料阅读、选择题作答和本地练习记录，稳定推进你的英语学习闭环。</p>
+          <p>围绕阅读、作答和本地练习记录，把每天的英语训练做得更稳定、更可持续。</p>
         </div>
-        <button className="primary-action" type="button" onClick={onContinue}>继续学习</button>
+        <div className="inline-actions">
+          <button className="primary-action" type="button" onClick={onContinue}>继续学习</button>
+          <button type="button" className="secondary-action" onClick={onOpenLibrary}>查看 Library</button>
+        </div>
       </div>
 
-      <div className="overview-grid">
-        <div className="overview-card">
+      {isUsingFallback && (
+        <div className="fallback-note">
+          后端暂未连接，当前首页内容来自示例数据，你仍然可以先预览学习流程和界面结构。
+        </div>
+      )}
+
+      <div className="study-summary-grid">
+        <div className="study-summary-card">
           <span>当前材料</span>
           <strong>{pack.title}</strong>
-          <small>{isUsingFallback ? "示例数据" : "来自本地数据库"}</small>
+          <small>{isUsingFallback ? "示例材料预览" : "当前学习材料"}</small>
         </div>
-        <div className="overview-card">
+        <div className="study-summary-card">
           <span>今日训练</span>
           <strong>{pack.question_count}</strong>
-          <small>当前材料题目数</small>
+          <small>本份材料题目数</small>
         </div>
-        <div className="overview-card">
+        <div className="study-summary-card">
           <span>最近正确率</span>
           <strong>{recentAttempt ? percent(recentAttempt.accuracy) : "暂无"}</strong>
           <small>{recentAttempt ? `${recentAttempt.correct_count}/${recentAttempt.total_questions}` : "完成一次练习后显示"}</small>
+        </div>
+        <div className="study-summary-card">
+          <span>最近状态</span>
+          <strong>{recentAttempt ? getAccuracyLabel(recentAttempt.accuracy) : "等待开始"}</strong>
+          <small>{recentAttempt ? getAttemptDisplayTime(recentAttempt.created_at) : "先完成一轮阅读练习"}</small>
         </div>
       </div>
 
@@ -297,20 +331,29 @@ function DashboardView({
         <div>
           <p className="eyebrow">Continue</p>
           <h2>{pack.title}</h2>
-          <p className="muted-text">进入 Workspace 后可以阅读文章、完成选择题，并提交本次练习记录。</p>
+          <p className="muted-text">进入 Workspace 后可以继续阅读文章、完成选择题，并把本次练习保存到本地记录中。</p>
           <div className="inline-actions">
             <button type="button" onClick={onContinue}>进入 Workspace</button>
-            <button type="button" className="secondary-action" onClick={onOpenLibrary}>查看 Library</button>
+            <button type="button" className="secondary-action" onClick={onOpenLibrary}>切换材料</button>
           </div>
         </div>
-        <div className="recent-list compact">
+        <div className="dashboard-attempts">
           <div className="section-title-row">
-            <h2>最近练习</h2>
+            <div>
+              <p className="eyebrow">Recent attempts</p>
+              <h2>最近练习记录</h2>
+            </div>
           </div>
-          {attempts.length === 0 ? <p className="muted-text">暂无练习记录。</p> : attempts.slice(0, 3).map((attempt) => (
-            <button key={attempt.attempt_id} type="button" onClick={() => onOpenAttempt(attempt.attempt_id)}>
-              <span>{attempt.pack_id}</span>
-              <strong>{attempt.correct_count}/{attempt.total_questions} · {percent(attempt.accuracy)}</strong>
+          {attempts.length === 0 ? <p className="muted-text">还没有练习记录。完成一次阅读训练后，这里会显示最近结果。</p> : attempts.slice(0, 3).map((attempt) => (
+            <button key={attempt.attempt_id} className="attempt-history-row" type="button" onClick={() => onOpenAttempt(attempt.attempt_id)}>
+              <div>
+                <strong>{attempt.pack_id}</strong>
+                <small>{getAttemptDisplayTime(attempt.created_at)}</small>
+              </div>
+              <div className="attempt-metric">
+                <span>{attempt.correct_count}/{attempt.total_questions}</span>
+                <span className={`accuracy-pill ${getAttemptStatus(attempt.accuracy)}`}>{percent(attempt.accuracy)}</span>
+              </div>
             </button>
           ))}
         </div>
@@ -491,21 +534,24 @@ function WorkspaceView({
 }
 
 function AttemptResult({ result }: { result: PracticeAttemptDetail }) {
+  const status = getAttemptStatus(result.accuracy);
+
   return (
     <div className="attempt-result">
-      <div className="section-title-row">
+      <div className="attempt-report-header">
         <div>
           <p className="eyebrow">Result</p>
-          <h2>练习结果</h2>
+          <h2>练习报告</h2>
+          <p className="muted-text">{getAttemptHeading(result)}</p>
         </div>
-        <strong>{percent(result.accuracy)}</strong>
+        <span className={`accuracy-pill ${status}`}>{getAccuracyLabel(result.accuracy)}</span>
       </div>
       <div className="result-summary">
-        <span>总题数：{result.total_questions}</span>
-        <span>正确数：{result.correct_count}</span>
-        <span>正确率：{percent(result.accuracy)}</span>
+        <span><strong>{result.total_questions}</strong> 总题数</span>
+        <span><strong>{result.correct_count}</strong> 正确数</span>
+        <span><strong>{percent(result.accuracy)}</strong> 正确率</span>
       </div>
-      <div className="answer-review-list">
+      <div className="attempt-answer-table">
         {result.answers.map((answer) => (
           <p key={answer.answer_id} className={answer.is_correct ? "answer-review right" : "answer-review wrong"}>
             <strong>{answer.question_id}</strong>
@@ -535,25 +581,38 @@ function AttemptsView({
         <div>
           <p className="eyebrow">Attempts</p>
           <h1>练习历史</h1>
-          <p>查看本地保存的最近练习记录和单题结果。</p>
+          <p>按材料与时间查看最近练习，快速回顾每次作答结果。</p>
         </div>
         <button type="button" onClick={onRefresh}>刷新记录</button>
       </div>
 
       <div className="attempts-layout">
         <div className="attempt-list-panel">
-          {attempts.length === 0 ? <p className="muted-text">暂无本地练习记录。</p> : attempts.map((attempt) => (
-            <button key={attempt.attempt_id} className={selectedAttempt?.attempt_id === attempt.attempt_id ? "attempt-row active" : "attempt-row"} type="button" onClick={() => onOpenAttempt(attempt.attempt_id)}>
-              <span>
-                <strong>{attempt.pack_id}</strong>
-                <small>{formatDate(attempt.created_at)}</small>
-              </span>
-              <strong>{attempt.correct_count}/{attempt.total_questions} · {percent(attempt.accuracy)}</strong>
-            </button>
-          ))}
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">History</p>
+              <h2>历史记录</h2>
+            </div>
+          </div>
+          {attempts.length === 0 ? <p className="muted-text">还没有本地练习记录。先在 Workspace 完成一次训练，这里就会出现历史结果。</p> : (
+            <div className="attempt-history-list">
+              {attempts.map((attempt) => (
+                <button key={attempt.attempt_id} className={selectedAttempt?.attempt_id === attempt.attempt_id ? "attempt-history-row active" : "attempt-history-row"} type="button" onClick={() => onOpenAttempt(attempt.attempt_id)}>
+                  <div>
+                    <strong>{attempt.pack_id}</strong>
+                    <small>{getAttemptDisplayTime(attempt.created_at)}</small>
+                  </div>
+                  <div className="attempt-metric">
+                    <span>{attempt.correct_count}/{attempt.total_questions}</span>
+                    <span className={`accuracy-pill ${getAttemptStatus(attempt.accuracy)}`}>{percent(attempt.accuracy)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="attempt-detail-panel">
-          {selectedAttempt ? <AttemptResult result={selectedAttempt} /> : <EmptyState title="选择一条记录" description="点击左侧练习记录后，这里会显示每题选择与正确答案。" />}
+          {selectedAttempt ? <AttemptResult result={selectedAttempt} /> : <EmptyState title="选择一条练习记录" description="点击左侧历史记录后，这里会显示本次练习的正确率和每题作答结果。" />}
         </div>
       </div>
     </section>
