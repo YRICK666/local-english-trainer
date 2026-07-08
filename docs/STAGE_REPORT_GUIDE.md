@@ -1,4 +1,4 @@
-﻿# Stage Report Guide
+# Stage Report Guide
 
 本文件规定 local-english-trainer 每个大阶段完成后的总结格式。
 
@@ -53,6 +53,21 @@
     结果：
     passed
 
+如果本阶段没有运行测试或构建，必须写清楚原因，例如：
+
+    命令：
+    本阶段未运行。
+
+    结果：
+    本阶段未运行，因为只修改文档，未修改代码。
+
+验证要求按任务类型判断：
+
+- 后端任务：默认记录 pytest 或相关后端测试文件结果；
+- 前端任务：默认记录 npm run build 结果；
+- 纯文档任务：可以不运行测试和构建，但必须说明原因；
+- 纯评估任务：不修改文件、不运行测试、不运行 Git 命令，除非用户明确要求。
+
 ## 4. 文件清单写法
 
 文件清单要具体到路径，例如：
@@ -72,3 +87,7 @@
     git ls-files | Select-String "node_modules|__pycache__|sqlite3|pytest_runtime_tmp|frontend/dist|frontend/build-output|\.log"
 
 第二条命令必须没有输出，才说明没有把运行产物纳入版本控制。
+
+如果用户明确要求不运行 Git 命令，应写：
+
+    本阶段未运行 Git 命令，因为用户明确要求不运行。

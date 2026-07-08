@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 ## 项目定位
 
@@ -108,3 +108,39 @@
 5. vocabulary / sentence 入库
 
 不要在这些闭环完成前扩展 OCR、AI 或复杂复习功能。
+
+## 验收 / review 阶段的 Git 使用规则
+
+在代码验收、review、检查模型是否越界修改文件时，默认允许使用只读 Git 命令。
+
+允许的只读 Git 命令包括：
+
+- `git status --short`
+- `git diff --name-only`
+- `git diff -- <path>`
+- `git log --oneline --decorate -3`
+- `git ls-files`
+
+这些命令只用于确认：
+
+- 本次修改了哪些文件；
+- 是否只修改了任务允许的文件；
+- 是否误改了接口、类型、mockData、后端、测试、依赖或文档；
+- 是否存在运行产物进入 Git 跟踪范围。
+
+只读 Git 命令不会修改仓库状态，不应和 `git add`、`git commit`、`git push`、`git reset`、`git clean` 混为一类。
+
+如果用户明确说“不要运行任何 Git 命令”，则仍然以用户当前指令为准，并在验收结论中说明无法使用 Git 验证 diff。
+
+未经用户明确确认，禁止执行会改变仓库状态的 Git 命令，例如：
+
+- `git add`
+- `git commit`
+- `git push`
+- `git reset`
+- `git clean`
+- `git restore`
+- `git checkout`
+- `git merge`
+- `git rebase`
+
