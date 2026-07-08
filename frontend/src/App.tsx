@@ -294,6 +294,10 @@ function App() {
     }
   }
 
+  async function handleImportSuccess() {
+    await refreshReadingPacks();
+  }
+
   useEffect(() => {
     loadInitialData();
   }, []);
@@ -340,7 +344,7 @@ function App() {
           />
         )}
         {activeView === "import" && (
-          <ImportView onOpenImportedPack={handleOpenImportedPack} />
+          <ImportView onOpenImportedPack={handleOpenImportedPack} onImportSuccess={handleImportSuccess} />
         )}
         {activeView === "library" && (
           <LibraryView
@@ -389,7 +393,13 @@ function App() {
   );
 }
 
-function ImportView({ onOpenImportedPack }: { onOpenImportedPack: (packId: string) => Promise<void>; }) {
+function ImportView({
+  onOpenImportedPack,
+  onImportSuccess
+}: {
+  onOpenImportedPack: (packId: string) => Promise<void>;
+  onImportSuccess: () => Promise<void>;
+}) {
   const [jsonText, setJsonText] = useState("");
   const [validationResult, setValidationResult] = useState<ImportValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ReadingPackImportResponse | null>(null);
@@ -447,7 +457,12 @@ function ImportView({ onOpenImportedPack }: { onOpenImportedPack: (packId: strin
       const result = await importReadingPack(nextDraft.payload);
       setValidationResult(result.validation);
       setImportResult(result);
-      setImportError(null);
+      try {
+        await onImportSuccess();
+        setImportError(null);
+      } catch {
+        setImportError("导入成功，但刷新 Library 失败。你可以稍后切换到 Library 查看，或点击进入 Workspace。");
+      }
     } catch (error) {
       setImportResult(null);
       if (error instanceof ApiError) {
