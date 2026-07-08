@@ -48,6 +48,10 @@ function getAttemptHeading(attempt: Pick<PracticeAttemptSummary, "pack_id" | "cr
   return `${attempt.pack_id} · ${getAttemptDisplayTime(attempt.created_at)}`;
 }
 
+function sortPassages<T extends { order: number }>(items: T[]) {
+  return [...items].sort((left, right) => left.order - right.order);
+}
+
 type ImportPreview = {
   packId: string;
   title: string;
@@ -166,6 +170,7 @@ function App() {
   const [pack, setPack] = useState<ReadingPack>(mockReadingPack);
   const [packs, setPacks] = useState<ReadingPackSummary[]>([]);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
+  const [currentPassageId, setCurrentPassageId] = useState<string>(mockReadingPack.passages[0]?.passage_id ?? "");
   const [attempts, setAttempts] = useState<PracticeAttemptSummary[]>([]);
   const [selectedAttempt, setSelectedAttempt] = useState<PracticeAttemptDetail | null>(null);
   const [latestAttempt, setLatestAttempt] = useState<PracticeAttemptDetail | null>(null);
@@ -176,7 +181,12 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
 
-  const passage = pack.passages[0];
+  const orderedPassages = useMemo(() => sortPassages(pack.passages), [pack.passages]);
+  const currentPassage = orderedPassages.find((item) => item.passage_id === currentPassageId) ?? orderedPassages[0];
+  const currentPassageQuestions = useMemo(
+    () => pack.questions.filter((question) => question.passage_id === currentPassage?.passage_id),
+    [currentPassage?.passage_id, pack.questions]
+  );
   const canSubmit = useMemo(
     () => pack.questions.length > 0 && pack.questions.every((question) => Boolean(selectedAnswers[question.question_id])),
     [pack.questions, selectedAnswers]
@@ -212,11 +222,13 @@ function App() {
         const firstPack = await getReadingPack(summaries[0].pack_id);
         setPack(firstPack);
         setSelectedAnswers({});
+        setCurrentPassageId(sortPassages(firstPack.passages)[0]?.passage_id ?? "");
         setLatestAttempt(null);
         setSelectedAttempt(null);
         setNotice("");
       } else {
         setPack(mockReadingPack);
+        setCurrentPassageId(sortPassages(mockReadingPack.passages)[0]?.passage_id ?? "");
         setIsUsingFallback(true);
         setNotice("还没有导入阅读材料，请先导入 reading_pack。当前显示示例数据。");
       }
@@ -224,6 +236,7 @@ function App() {
     } catch {
       setPack(mockReadingPack);
       setPacks([]);
+      setCurrentPassageId(sortPassages(mockReadingPack.passages)[0]?.passage_id ?? "");
       setIsUsingFallback(true);
       setNotice("后端未连接，可使用示例数据预览界面；提交练习记录需要启动后端。");
     } finally {
@@ -238,6 +251,7 @@ function App() {
       const nextPack = await getReadingPack(packId);
       setPack(nextPack);
       setSelectedAnswers({});
+      setCurrentPassageId(sortPassages(nextPack.passages)[0]?.passage_id ?? "");
       setLatestAttempt(null);
       setSelectedAttempt(null);
       setNotice("");
@@ -359,7 +373,10 @@ function App() {
           <WorkspaceView
             pack={pack}
             packs={packs}
-            passage={passage}
+            passages={orderedPassages}
+            currentPassage={currentPassage}
+            currentPassageQuestions={currentPassageQuestions}
+            currentPassageId={currentPassage?.passage_id ?? ""}
             selectedAnswers={selectedAnswers}
             answeredCount={answeredCount}
             canSubmit={canSubmit}
@@ -370,6 +387,7 @@ function App() {
             workspaceError={workspaceError}
             onRefresh={loadInitialData}
             onLoadPack={(packId) => loadPack(packId, "workspace")}
+            onSelectPassage={setCurrentPassageId}
             onSelectAnswer={(questionId, answer) => setSelectedAnswers((prev) => ({ ...prev, [questionId]: answer }))}
             onSubmitAttempt={handleSubmitAttempt}
             onOpenAttempts={() => setActiveView("attempts")}
@@ -753,7 +771,10 @@ function LibraryView({
 function WorkspaceView({
   pack,
   packs,
-  passage,
+  passages,
+  currentPassage,
+  currentPassageQuestions,
+  currentPassageId,
   selectedAnswers,
   answeredCount,
   canSubmit,
@@ -764,13 +785,17 @@ function WorkspaceView({
   workspaceError,
   onRefresh,
   onLoadPack,
+  onSelectPassage,
   onSelectAnswer,
   onSubmitAttempt,
   onOpenAttempts
 }: {
   pack: ReadingPack;
   packs: ReadingPackSummary[];
-  passage: ReadingPack["passages"][number] | undefined;
+  passages: ReadingPack["passages"];
+  currentPassage: ReadingPack["passages"][number] | undefined;
+  currentPassageQuestions: ReadingPack["questions"];
+  currentPassageId: string;
   selectedAnswers: Record<string, string>;
   answeredCount: number;
   canSubmit: boolean;
@@ -781,11 +806,13 @@ function WorkspaceView({
   workspaceError: string | null;
   onRefresh: () => void;
   onLoadPack: (packId: string) => void;
+  onSelectPassage: (passageId: string) => void;
   onSelectAnswer: (questionId: string, answer: string) => void;
   onSubmitAttempt: () => void;
   onOpenAttempts: () => void;
 }) {
   const remaining = pack.questions.length - answeredCount;
+  const currentAnsweredCount = currentPassageQuestions.filter((question) => Boolean(selectedAnswers[question.question_id])).length;
   return (
     <section className="workspace-page">
       <div className="training-header">
@@ -812,12 +839,36 @@ function WorkspaceView({
       ) : (
       <div className="workspace-grid">
         <article className="workspace-pane article-pane">
+          {passages.length > 1 && (
+            <div className="passage-switcher" aria-label="Passage navigation">
+              {passages.map((passage) => {
+                const passageQuestions = pack.questions.filter((question) => question.passage_id === passage.passage_id);
+                const completedCount = passageQuestions.filter((question) => Boolean(selectedAnswers[question.question_id])).length;
+
+                return (
+                  <button
+                    key={passage.passage_id}
+                    type="button"
+                    className={passage.passage_id === currentPassageId ? "passage-tab active" : "passage-tab"}
+                    onClick={() => onSelectPassage(passage.passage_id)}
+                  >
+                    <strong>Passage {passage.order}</strong>
+                    <span>{passage.title || `${pack.title} · Passage ${passage.order}`}</span>
+                    <small>{completedCount}/{passageQuestions.length} 已作答</small>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div className="pane-title">
             <p className="eyebrow">Passage</p>
-            <h2>{passage?.title ?? pack.title}</h2>
+            <h2>{currentPassage?.title ?? pack.title}</h2>
+            {passages.length > 1 && currentPassage && (
+              <p className="muted-text">第 {currentPassage.order} 篇，共 {passages.length} 篇</p>
+            )}
           </div>
           <div className="paragraphs">
-            {passage?.paragraphs.map((paragraph) => (
+            {currentPassage?.paragraphs.map((paragraph) => (
               <p key={paragraph.paragraph_id}><span>{paragraph.order}</span>{paragraph.text}</p>
             ))}
           </div>
@@ -827,7 +878,8 @@ function WorkspaceView({
           <div className="question-topbar">
             <div>
               <p className="eyebrow">Questions</p>
-              <h2>{answeredCount}/{pack.questions.length} 已作答</h2>
+              <h2>{currentAnsweredCount}/{currentPassageQuestions.length} 当前篇章已作答</h2>
+              <p className="muted-text">{answeredCount}/{pack.questions.length} 全部题目已作答</p>
             </div>
             <button className="primary-action" type="button" onClick={onSubmitAttempt} disabled={!canSubmit || isSubmitting}>
               {isSubmitting ? "提交中……" : "提交本次练习"}
@@ -848,7 +900,7 @@ function WorkspaceView({
           )}
 
           <div className="question-list">
-            {pack.questions.map((question) => (
+            {currentPassageQuestions.map((question) => (
               <div className="question-card" key={question.question_id}>
                 <h3>{question.question_no || question.question_id}. {question.stem}</h3>
                 <div className="options">
@@ -865,6 +917,9 @@ function WorkspaceView({
                 </div>
               </div>
             ))}
+            {currentPassageQuestions.length === 0 && (
+              <div className="workspace-status">当前 passage 暂时没有关联题目。</div>
+            )}
           </div>
 
           {result && <AttemptResult result={result} />}
