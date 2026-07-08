@@ -22,6 +22,7 @@ class ReadingPack(Base):
     passages = relationship("Passage", back_populates="pack", cascade="all, delete-orphan")
     questions = relationship("Question", back_populates="pack", cascade="all, delete-orphan")
     attempts = relationship("PracticeAttempt", back_populates="pack", cascade="all, delete-orphan")
+    annotations = relationship("ReadingAnnotation", back_populates="pack", cascade="all, delete-orphan")
 
 
 class Passage(Base):
@@ -41,6 +42,7 @@ class Passage(Base):
     pack = relationship("ReadingPack", back_populates="passages")
     paragraphs = relationship("Paragraph", back_populates="passage", cascade="all, delete-orphan")
     questions = relationship("Question", back_populates="passage")
+    annotations = relationship("ReadingAnnotation", back_populates="passage")
 
 
 class Paragraph(Base):
@@ -54,6 +56,7 @@ class Paragraph(Base):
     order_index = Column(Integer, nullable=False, default=0)
 
     passage = relationship("Passage", back_populates="paragraphs")
+    annotations = relationship("ReadingAnnotation", back_populates="paragraph")
 
 
 class Question(Base):
@@ -77,6 +80,7 @@ class Question(Base):
     pack = relationship("ReadingPack", back_populates="questions")
     passage = relationship("Passage", back_populates="questions")
     options = relationship("QuestionOption", back_populates="question", cascade="all, delete-orphan")
+    annotations = relationship("ReadingAnnotation", back_populates="question")
 
 
 class QuestionOption(Base):
@@ -122,3 +126,27 @@ class PracticeAttemptAnswer(Base):
     is_correct = Column(Boolean, nullable=False)
 
     attempt = relationship("PracticeAttempt", back_populates="answers")
+
+
+class ReadingAnnotation(Base):
+    __tablename__ = "reading_annotations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    annotation_id = Column(String(120), nullable=False, unique=True, index=True)
+    pack_db_id = Column(Integer, ForeignKey("reading_packs.id"), nullable=False)
+    pack_id = Column(String(120), nullable=False, index=True)
+    passage_db_id = Column(Integer, ForeignKey("passages.id"), nullable=False)
+    passage_id = Column(String(120), nullable=False, index=True)
+    paragraph_db_id = Column(Integer, ForeignKey("paragraphs.id"), nullable=False)
+    paragraph_id = Column(String(120), nullable=False, index=True)
+    question_db_id = Column(Integer, ForeignKey("questions.id"), nullable=True)
+    question_id = Column(String(120), nullable=True, index=True)
+    annotation_type = Column(String(64), nullable=False)
+    selected_text = Column(Text, nullable=False)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    pack = relationship("ReadingPack", back_populates="annotations")
+    passage = relationship("Passage", back_populates="annotations")
+    paragraph = relationship("Paragraph", back_populates="annotations")
+    question = relationship("Question", back_populates="annotations")

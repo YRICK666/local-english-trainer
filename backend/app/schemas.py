@@ -109,3 +109,30 @@ class PracticeAttemptSummary(BaseModel):
 
 class PracticeAttemptDetail(PracticeAttemptSummary):
     answers: list[PracticeAttemptAnswerOut] = Field(default_factory=list)
+
+
+class AnnotationCreate(BaseModel):
+    pack_id: str
+    passage_id: str
+    paragraph_id: str
+    question_id: str | None = None
+    annotation_type: str
+    selected_text: str
+    note: str | None = None
+
+
+class AnnotationOut(BaseModel):
+    annotation_id: str
+    pack_id: str
+    passage_id: str
+    paragraph_id: str
+    question_id: str | None = None
+    annotation_type: str
+    selected_text: str
+    note: str | None = None
+    created_at: datetime | None = None
+
+
+class AnnotationDeleteResponse(BaseModel):
+    deleted: bool
+    annotation_id: str

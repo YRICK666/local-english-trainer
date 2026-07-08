@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.app import schemas
 from backend.app.db import get_db, init_db
-from backend.app.services import practice_attempt_service, reading_pack_service
+from backend.app.services import annotation_service, practice_attempt_service, reading_pack_service
 
 app = FastAPI(title="local-english-trainer API")
 
@@ -67,3 +67,27 @@ def get_practice_attempt(attempt_id: str, db: Session = Depends(get_db)) -> sche
     if attempt is None:
         raise HTTPException(status_code=404, detail="Practice attempt not found")
     return attempt
+
+
+@app.post("/api/annotations", response_model=schemas.AnnotationOut)
+def create_annotation(payload: schemas.AnnotationCreate, db: Session = Depends(get_db)) -> schemas.AnnotationOut:
+    try:
+        return annotation_service.create_annotation(db, payload)
+    except annotation_service.AnnotationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.get("/api/annotations", response_model=list[schemas.AnnotationOut])
+def list_annotations(pack_id: str, db: Session = Depends(get_db)) -> list[schemas.AnnotationOut]:
+    try:
+        return annotation_service.list_annotations(db, pack_id)
+    except annotation_service.AnnotationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.delete("/api/annotations/{annotation_id}", response_model=schemas.AnnotationDeleteResponse)
+def delete_annotation(annotation_id: str, db: Session = Depends(get_db)) -> schemas.AnnotationDeleteResponse:
+    try:
+        return annotation_service.delete_annotation(db, annotation_id)
+    except annotation_service.AnnotationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
