@@ -1,4 +1,15 @@
-import type { AttemptAnswerIn, PracticeAttemptDetail, PracticeAttemptSummary, ReadingPack, ReadingPackImportResponse, ReadingPackSummary, ImportValidationResult } from "./types";
+import type {
+  AnnotationCreate,
+  AnnotationDeleteResponse,
+  AttemptAnswerIn,
+  ImportValidationResult,
+  PracticeAttemptDetail,
+  PracticeAttemptSummary,
+  ReadingAnnotation,
+  ReadingPack,
+  ReadingPackImportResponse,
+  ReadingPackSummary
+} from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -67,4 +78,21 @@ export function listPracticeAttempts() {
 
 export function getPracticeAttempt(attemptId: string) {
   return requestJson<PracticeAttemptDetail>(`/api/practice-attempts/${encodeURIComponent(attemptId)}`);
+}
+
+export function listAnnotations(packId: string) {
+  return requestJson<ReadingAnnotation[]>(`/api/annotations?pack_id=${encodeURIComponent(packId)}`);
+}
+
+export function createAnnotation(payload: AnnotationCreate) {
+  return requestJson<ReadingAnnotation>("/api/annotations", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteAnnotation(annotationId: string) {
+  return requestJson<AnnotationDeleteResponse>(`/api/annotations/${encodeURIComponent(annotationId)}`, {
+    method: "DELETE"
+  });
 }

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { ApiError, getPracticeAttempt, getReadingPack, importReadingPack, listPracticeAttempts, listReadingPacks, submitPracticeAttempt, validateReadingPack } from "./api";
+import { ApiError, createAnnotation, deleteAnnotation, getPracticeAttempt, getReadingPack, importReadingPack, listAnnotations, listPracticeAttempts, listReadingPacks, submitPracticeAttempt, validateReadingPack } from "./api";
 import { mockReadingPack } from "./mockData";
-import type { ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingPack, ReadingPackImportResponse, ReadingPackSummary } from "./types";
+import type { AnnotationCreate, AnnotationType, ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingAnnotation, ReadingPack, ReadingPackImportResponse, ReadingPackSummary } from "./types";
 import "./styles.css";
 
 type ViewKey = "dashboard" | "import" | "library" | "workspace" | "attempts" | "vocabulary" | "sentences" | "settings";
@@ -50,6 +50,21 @@ function getAttemptHeading(attempt: Pick<PracticeAttemptSummary, "pack_id" | "cr
 
 function sortPassages<T extends { order: number }>(items: T[]) {
   return [...items].sort((left, right) => left.order - right.order);
+}
+
+const annotationTypeOptions: { value: AnnotationType; label: string }[] = [
+  { value: "answer_evidence", label: "答案依据" },
+  { value: "synonym_replacement", label: "同义替换" },
+  { value: "vocabulary", label: "生词" },
+  { value: "difficult_sentence", label: "长难句" }
+];
+
+function getAnnotationTypeLabel(type: AnnotationType) {
+  return annotationTypeOptions.find((item) => item.value === type)?.label ?? type;
+}
+
+function getParagraphLabel(order?: number) {
+  return order ? `第 ${order} 段` : "段落";
 }
 
 type ImportPreview = {
@@ -180,6 +195,11 @@ function App() {
   const [isPackLoading, setIsPackLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [annotations, setAnnotations] = useState<ReadingAnnotation[]>([]);
+  const [annotationError, setAnnotationError] = useState<string | null>(null);
+  const [isAnnotationsLoading, setIsAnnotationsLoading] = useState(false);
+  const [isAnnotationSaving, setIsAnnotationSaving] = useState(false);
+  const [deletingAnnotationId, setDeletingAnnotationId] = useState<string | null>(null);
 
   const orderedPassages = useMemo(() => sortPassages(pack.passages), [pack.passages]);
   const currentPassage = orderedPassages.find((item) => item.passage_id === currentPassageId) ?? orderedPassages[0];
@@ -197,6 +217,8 @@ function App() {
   );
   const result = latestAttempt ?? selectedAttempt;
   const recentAttempt = attempts[0];
+  const annotationUnavailableMessage = "后端未连接，标注暂时无法保存；阅读和作答仍可继续。";
+  const fallbackAnnotationMessage = "示例数据下不能保存标注，请先导入材料并启动后端。";
 
   async function refreshAttempts() {
     try {
@@ -214,8 +236,63 @@ function App() {
     return summaries;
   }
 
+  async function refreshAnnotations(packId: string) {
+    setIsAnnotationsLoading(true);
+    setAnnotationError(null);
+    try {
+      const nextAnnotations = await listAnnotations(packId);
+      setAnnotations(nextAnnotations);
+    } catch {
+      setAnnotations([]);
+      setAnnotationError(annotationUnavailableMessage);
+    } finally {
+      setIsAnnotationsLoading(false);
+    }
+  }
+
+  async function handleCreateAnnotation(payload: AnnotationCreate): Promise<boolean> {
+    if (payload.selected_text.trim().length === 0) {
+      setAnnotationError("请先输入要标注的词、短语或句子。");
+      return false;
+    }
+
+    if (isUsingFallback) {
+      setAnnotationError(fallbackAnnotationMessage);
+      return false;
+    }
+
+    setIsAnnotationSaving(true);
+    setAnnotationError(null);
+    try {
+      const created = await createAnnotation(payload);
+      setAnnotations((prev) => [...prev, created]);
+      return true;
+    } catch {
+      setAnnotationError(annotationUnavailableMessage);
+      return false;
+    } finally {
+      setIsAnnotationSaving(false);
+    }
+  }
+
+  async function handleDeleteAnnotation(annotationId: string) {
+    setDeletingAnnotationId(annotationId);
+    setAnnotationError(null);
+    try {
+      await deleteAnnotation(annotationId);
+      setAnnotations((prev) => prev.filter((annotation) => annotation.annotation_id !== annotationId));
+    } catch {
+      setAnnotationError(annotationUnavailableMessage);
+    } finally {
+      setDeletingAnnotationId(null);
+    }
+  }
+
   async function loadInitialData() {
     setWorkspaceError(null);
+    setAnnotations([]);
+    setAnnotationError(null);
+    setDeletingAnnotationId(null);
     try {
       const summaries = await refreshReadingPacks();
       if (summaries.length > 0) {
@@ -226,10 +303,13 @@ function App() {
         setLatestAttempt(null);
         setSelectedAttempt(null);
         setNotice("");
+        await refreshAnnotations(firstPack.pack_id);
       } else {
         setPack(mockReadingPack);
         setCurrentPassageId(sortPassages(mockReadingPack.passages)[0]?.passage_id ?? "");
         setIsUsingFallback(true);
+        setAnnotations([]);
+        setAnnotationError(fallbackAnnotationMessage);
         setNotice("还没有导入阅读材料，请先导入 reading_pack。当前显示示例数据。");
       }
       await refreshAttempts();
@@ -238,6 +318,8 @@ function App() {
       setPacks([]);
       setCurrentPassageId(sortPassages(mockReadingPack.passages)[0]?.passage_id ?? "");
       setIsUsingFallback(true);
+      setAnnotations([]);
+      setAnnotationError(annotationUnavailableMessage);
       setNotice("后端未连接，可使用示例数据预览界面；提交练习记录需要启动后端。");
     } finally {
       setIsInitialLoading(false);
@@ -247,6 +329,9 @@ function App() {
   async function loadPack(packId: string, nextView: ViewKey = "workspace") {
     setIsPackLoading(true);
     setWorkspaceError(null);
+    setAnnotations([]);
+    setAnnotationError(null);
+    setDeletingAnnotationId(null);
     try {
       const nextPack = await getReadingPack(packId);
       setPack(nextPack);
@@ -257,7 +342,10 @@ function App() {
       setNotice("");
       setIsUsingFallback(false);
       setActiveView(nextView);
+      await refreshAnnotations(nextPack.pack_id);
     } catch {
+      setAnnotations([]);
+      setAnnotationError(annotationUnavailableMessage);
       setNotice("后端未连接，无法读取该阅读材料。可先使用示例数据预览 Workspace。");
       setIsUsingFallback(true);
       setActiveView(nextView);
@@ -381,6 +469,11 @@ function App() {
             answeredCount={answeredCount}
             canSubmit={canSubmit}
             isUsingFallback={isUsingFallback}
+            annotations={annotations}
+            annotationError={annotationError}
+            isAnnotationsLoading={isAnnotationsLoading}
+            isAnnotationSaving={isAnnotationSaving}
+            deletingAnnotationId={deletingAnnotationId}
             result={result}
             isPackLoading={isPackLoading}
             isSubmitting={isSubmitting}
@@ -389,6 +482,8 @@ function App() {
             onLoadPack={(packId) => loadPack(packId, "workspace")}
             onSelectPassage={setCurrentPassageId}
             onSelectAnswer={(questionId, answer) => setSelectedAnswers((prev) => ({ ...prev, [questionId]: answer }))}
+            onCreateAnnotation={handleCreateAnnotation}
+            onDeleteAnnotation={handleDeleteAnnotation}
             onSubmitAttempt={handleSubmitAttempt}
             onOpenAttempts={() => setActiveView("attempts")}
           />
@@ -779,6 +874,11 @@ function WorkspaceView({
   answeredCount,
   canSubmit,
   isUsingFallback,
+  annotations,
+  annotationError,
+  isAnnotationsLoading,
+  isAnnotationSaving,
+  deletingAnnotationId,
   result,
   isPackLoading,
   isSubmitting,
@@ -787,6 +887,8 @@ function WorkspaceView({
   onLoadPack,
   onSelectPassage,
   onSelectAnswer,
+  onCreateAnnotation,
+  onDeleteAnnotation,
   onSubmitAttempt,
   onOpenAttempts
 }: {
@@ -800,6 +902,11 @@ function WorkspaceView({
   answeredCount: number;
   canSubmit: boolean;
   isUsingFallback: boolean;
+  annotations: ReadingAnnotation[];
+  annotationError: string | null;
+  isAnnotationsLoading: boolean;
+  isAnnotationSaving: boolean;
+  deletingAnnotationId: string | null;
   result: PracticeAttemptDetail | null;
   isPackLoading: boolean;
   isSubmitting: boolean;
@@ -808,11 +915,67 @@ function WorkspaceView({
   onLoadPack: (packId: string) => void;
   onSelectPassage: (passageId: string) => void;
   onSelectAnswer: (questionId: string, answer: string) => void;
+  onCreateAnnotation: (payload: AnnotationCreate) => Promise<boolean>;
+  onDeleteAnnotation: (annotationId: string) => Promise<void>;
   onSubmitAttempt: () => void;
   onOpenAttempts: () => void;
 }) {
   const remaining = pack.questions.length - answeredCount;
   const currentAnsweredCount = currentPassageQuestions.filter((question) => Boolean(selectedAnswers[question.question_id])).length;
+  const currentPassageAnnotations = annotations.filter((annotation) => annotation.passage_id === currentPassage?.passage_id);
+  const [draftType, setDraftType] = useState<AnnotationType>("answer_evidence");
+  const [draftParagraphId, setDraftParagraphId] = useState(currentPassage?.paragraphs[0]?.paragraph_id ?? "");
+  const [draftQuestionId, setDraftQuestionId] = useState("");
+  const [draftSelectedText, setDraftSelectedText] = useState("");
+  const [draftNote, setDraftNote] = useState("");
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const firstParagraphId = currentPassage?.paragraphs[0]?.paragraph_id ?? "";
+    setDraftParagraphId((prev) => currentPassage?.paragraphs.some((paragraph) => paragraph.paragraph_id === prev) ? prev : firstParagraphId);
+    setDraftQuestionId((prev) => currentPassageQuestions.some((question) => question.question_id === prev) ? prev : "");
+    setDraftError(null);
+  }, [currentPassage?.passage_id, currentPassage?.paragraphs, currentPassageQuestions]);
+
+  const paragraphLabelMap = useMemo(() => new Map(
+    (currentPassage?.paragraphs ?? []).map((paragraph) => [paragraph.paragraph_id, getParagraphLabel(paragraph.order)])
+  ), [currentPassage?.paragraphs]);
+  const questionLabelMap = useMemo(() => new Map(
+    currentPassageQuestions.map((question) => [question.question_id, question.question_no || question.question_id])
+  ), [currentPassageQuestions]);
+  const annotationHelperText = isUsingFallback
+    ? "示例数据下不能保存标注，请先导入材料并启动后端。"
+    : "手动输入你想保留的词、短语、句子或答案依据，保存到当前阅读材料。";
+
+  async function handleSaveAnnotation() {
+    const selectedText = draftSelectedText.trim();
+    if (!selectedText) {
+      setDraftError("请先输入要标注的词、短语或句子。");
+      return;
+    }
+    if (!currentPassage || !draftParagraphId) {
+      setDraftError("当前 passage 缺少可用段落，暂时无法保存标注。");
+      return;
+    }
+
+    setDraftError(null);
+    const created = await onCreateAnnotation({
+      pack_id: pack.pack_id,
+      passage_id: currentPassage.passage_id,
+      paragraph_id: draftParagraphId,
+      question_id: draftQuestionId || null,
+      annotation_type: draftType,
+      selected_text: selectedText,
+      note: draftNote.trim() ? draftNote.trim() : null
+    });
+
+    if (created) {
+      setDraftSelectedText("");
+      setDraftNote("");
+      setDraftQuestionId("");
+    }
+  }
+
   return (
     <section className="workspace-page">
       <div className="training-header">
@@ -921,6 +1084,90 @@ function WorkspaceView({
               <div className="workspace-status">当前 passage 暂时没有关联题目。</div>
             )}
           </div>
+
+          <section className="annotation-panel">
+            <div className="section-title-row">
+              <div>
+                <p className="eyebrow">Annotations</p>
+                <h2>{currentPassageAnnotations.length} 条当前篇章标注</h2>
+                <p className="muted-text">当前篇章 {currentPassageAnnotations.length} 条 / 本材料共 {annotations.length} 条</p>
+              </div>
+            </div>
+
+            <div className="annotation-form">
+              <p className="import-help">{annotationHelperText}</p>
+              <div className="annotation-grid">
+                <label className="annotation-field">
+                  <span>标注类型</span>
+                  <select value={draftType} onChange={(event) => setDraftType(event.target.value as AnnotationType)} disabled={isUsingFallback || isAnnotationSaving}>
+                    {annotationTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label className="annotation-field">
+                  <span>关联段落</span>
+                  <select value={draftParagraphId} onChange={(event) => setDraftParagraphId(event.target.value)} disabled={isUsingFallback || isAnnotationSaving || !currentPassage}>
+                    {(currentPassage?.paragraphs ?? []).map((paragraph) => <option key={paragraph.paragraph_id} value={paragraph.paragraph_id}>{getParagraphLabel(paragraph.order)}</option>)}
+                  </select>
+                </label>
+                <label className="annotation-field">
+                  <span>关联题目</span>
+                  <select value={draftQuestionId} onChange={(event) => setDraftQuestionId(event.target.value)} disabled={isUsingFallback || isAnnotationSaving}>
+                    <option value="">不关联题目</option>
+                    {currentPassageQuestions.map((question) => <option key={question.question_id} value={question.question_id}>{question.question_no || question.question_id}</option>)}
+                  </select>
+                </label>
+              </div>
+              <label className="annotation-field">
+                <span>标注内容</span>
+                <textarea
+                  value={draftSelectedText}
+                  onChange={(event) => setDraftSelectedText(event.target.value)}
+                  placeholder="输入要标注的词、短语或句子"
+                  disabled={isUsingFallback || isAnnotationSaving}
+                />
+              </label>
+              <label className="annotation-field">
+                <span>备注</span>
+                <textarea
+                  value={draftNote}
+                  onChange={(event) => setDraftNote(event.target.value)}
+                  placeholder="可选备注，例如同义替换关系、答案依据说明"
+                  disabled={isUsingFallback || isAnnotationSaving}
+                />
+              </label>
+              {draftError && <div className="annotation-error">{draftError}</div>}
+              {annotationError && <div className="annotation-error">{annotationError}</div>}
+              {isAnnotationsLoading && <p className="muted-text">正在加载本材料标注……</p>}
+              <button className="primary-action" type="button" onClick={() => void handleSaveAnnotation()} disabled={isUsingFallback || isAnnotationSaving || !currentPassage || !draftParagraphId}>
+                {isAnnotationSaving ? "保存中……" : "保存标注"}
+              </button>
+            </div>
+
+            <div className="annotation-list">
+              {currentPassageAnnotations.length === 0 ? (
+                <p className="annotation-empty">当前 passage 还没有标注。</p>
+              ) : currentPassageAnnotations.map((annotation) => (
+                <div key={annotation.annotation_id} className="annotation-row">
+                  <div className="annotation-meta">
+                    <span className="annotation-type-pill">{getAnnotationTypeLabel(annotation.annotation_type)}</span>
+                    <span>{paragraphLabelMap.get(annotation.paragraph_id) ?? annotation.paragraph_id}</span>
+                    {annotation.question_id && <span>题目 {questionLabelMap.get(annotation.question_id) ?? annotation.question_id}</span>}
+                    <span>{formatDate(annotation.created_at ?? undefined)}</span>
+                  </div>
+                  <strong>{annotation.selected_text}</strong>
+                  {annotation.note && <p>{annotation.note}</p>}
+                  <button
+                    type="button"
+                    className="danger-action"
+                    disabled={deletingAnnotationId === annotation.annotation_id}
+                    onClick={() => void onDeleteAnnotation(annotation.annotation_id)}
+                  >
+                    {deletingAnnotationId === annotation.annotation_id ? "删除中……" : "删除"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
 
           {result && <AttemptResult result={result} />}
           <button className="text-action" type="button" onClick={onOpenAttempts}>查看最近练习记录</button>

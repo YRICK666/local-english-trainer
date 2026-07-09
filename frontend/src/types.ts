@@ -101,3 +101,32 @@ export type PracticeAttemptSummary = {
 export type PracticeAttemptDetail = PracticeAttemptSummary & {
   answers: AttemptAnswer[];
 };
+
+export type AnnotationType = "answer_evidence" | "synonym_replacement" | "vocabulary" | "difficult_sentence";
+
+export type ReadingAnnotation = {
+  annotation_id: string;
+  pack_id: string;
+  passage_id: string;
+  paragraph_id: string;
+  question_id?: string | null;
+  annotation_type: AnnotationType;
+  selected_text: string;
+  note?: string | null;
+  created_at?: string | null;
+};
+
+export type AnnotationCreate = {
+  pack_id: string;
+  passage_id: string;
+  paragraph_id: string;
+  question_id?: string | null;
+  annotation_type: AnnotationType;
+  selected_text: string;
+  note?: string | null;
+};
+
+export type AnnotationDeleteResponse = {
+  deleted: boolean;
+  annotation_id: string;
+};

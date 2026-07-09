@@ -490,6 +490,113 @@ select {
   padding-top: 16px;
 }
 
+.annotation-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #dfe3da;
+  border-radius: 8px;
+  background: #fbfcf8;
+}
+
+.annotation-form,
+.annotation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.annotation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.annotation-field {
+  display: grid;
+  gap: 6px;
+}
+
+.annotation-field span {
+  color: #5f6d61;
+  font-size: 13px;
+}
+
+.annotation-field textarea {
+  min-height: 84px;
+  padding: 10px 12px;
+  border: 1px solid #ced8ca;
+  border-radius: 8px;
+  background: #fffefb;
+  color: #253129;
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.annotation-field textarea:focus {
+  outline: 2px solid rgba(49, 95, 59, 0.16);
+  border-color: #7d9a74;
+}
+
+.annotation-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #e0e4db;
+  border-radius: 8px;
+  background: #fffefb;
+}
+
+.annotation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #6b756a;
+  font-size: 12px;
+}
+
+.annotation-type-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid #c8d6c2;
+  border-radius: 999px;
+  background: #eef5ea;
+  color: #315f3b;
+  font-weight: 650;
+}
+
+.annotation-empty {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed #d3d8d0;
+  border-radius: 8px;
+  color: #677267;
+  background: #fffefb;
+}
+
+.annotation-error {
+  padding: 10px 12px;
+  border: 1px solid #e0c5bd;
+  border-radius: 7px;
+  background: #fcf2ef;
+  color: #8a3d32;
+}
+
+.danger-action {
+  width: fit-content;
+  border-color: #e0c5bd;
+  background: #fff7f4;
+  color: #8a3d32;
+}
+
+.danger-action:hover:not(:disabled) {
+  border-color: #c79285;
+  background: #fceee9;
+}
+
 .question-card {
   padding-bottom: 16px;
   border-bottom: 1px solid #e7eae3;
@@ -629,6 +736,12 @@ select {
   .question-pane { padding: 18px; }
   .passage-switcher {
     grid-template-columns: 1fr;
+  }
+  .annotation-grid {
+    grid-template-columns: 1fr;
+  }
+  .annotation-meta {
+    display: grid;
   }
   .paragraphs p { font-size: 17px; line-height: 1.82; }
 }
