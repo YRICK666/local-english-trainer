@@ -87,9 +87,13 @@
 
 每次完成任务后：
 
-1. 运行后端测试：python -m pytest
-2. 运行前端构建：cd frontend && npm run build
-3. 输出简短总结：
+1. 按任务类型运行验证：
+   - 后端任务：运行 `python -m pytest`
+   - 前端任务：运行 `cd frontend && npm run build`
+   - 全栈任务：运行后端测试和前端构建
+   - 纯文档任务：不强制运行 pytest 或 build，但必须说明未运行原因
+   - 如果用户当前明确要求不运行某个命令，以用户当前指令为准
+2. 输出简短总结：
    - 修改了哪些文件
    - 新增了哪些表或接口
    - 前端改了什么
@@ -109,6 +113,11 @@
 
 不要在这些闭环完成前扩展 OCR、AI 或复杂复习功能。
 
+## Workflow References
+
+- 规划和执行提示词模板参考 `docs/TASK_PROMPT_TEMPLATES.md`。
+- 代码验收和只读 review 参考 `docs/CODE_REVIEW_GUIDE.md`。
+- 本文件只保留长期项目规则；单次任务的允许文件、禁止文件、接口字段和验收标准应写在任务 prompt 中。
 ## 验收 / review 阶段的 Git 使用规则
 
 在代码验收、review、检查模型是否越界修改文件时，默认允许使用只读 Git 命令。
@@ -143,4 +152,6 @@
 - `git checkout`
 - `git merge`
 - `git rebase`
+
+
 
