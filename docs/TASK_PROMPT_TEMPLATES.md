@@ -76,6 +76,8 @@ package 文件
 验证：
 运行 python -m pytest。
 如果失败，先修复，不要跳过。
+任务 prompt 应明确是否允许使用 `apply_patch`。
+任务 prompt 应明确是否允许运行 `pytest`。
 
 完成后输出：
 1. 修改了哪些文件；
@@ -138,6 +140,8 @@ api.ts / types.ts：
 验证：
 运行 cd frontend && npm run build。
 如果失败，先修复，不要跳过。
+任务 prompt 应明确是否允许使用 `apply_patch`。
+任务 prompt 应明确是否允许运行 `npm run build`。
 
 完成后输出：
 1. 修改了哪些文件；
@@ -183,6 +187,7 @@ package 文件
 验证：
 前端小修运行 cd frontend && npm run build。
 纯文档小修不需要运行 pytest 或 build，但必须说明原因。
+任务 prompt 应明确是否允许使用 `apply_patch`。
 
 完成后输出：
 1. 修改了哪个文件；
@@ -199,12 +204,20 @@ package 文件
 ```text
 请只做代码验收，不修改任何文件，不写代码，不执行 Git 写入命令。
 
+默认不使用 `apply_patch`。
+默认不运行会生成产物的 `pytest` / `build` / 其他验证命令，除非用户当前明确要求。
+
 允许使用只读 Git 命令：
 - git status --short
 - git diff --name-only
 - git diff -- <path>
 - git log --oneline --decorate -10
 - git ls-files
+- git grep "keyword"
+
+允许使用只读读取 / 搜索命令：
+- Get-Content .\path\to\file
+- Get-ChildItem -Recurse -File -Include *.md,*.ts,*.tsx,*.py | Select-String "keyword"
 
 禁止执行：
 - git add
@@ -216,10 +229,24 @@ package 文件
 - git checkout
 - git merge
 - git rebase
+- apply_patch
+- 会生成产物的 pytest / build
+- 提权、清理、reset 类命令
 
 请先读取：
 - AGENTS.md
 - 与本轮任务相关的源码和测试
+
+搜索优先顺序：
+1. git grep
+2. Get-ChildItem + Select-String
+3. Get-Content
+
+如果命令失败：
+- 先汇报失败原因和影响；
+- 不要提权；
+- 不要清理文件；
+- 不要执行 reset / restore。
 
 验收内容：
 1. 修改范围是否只包含允许文件；
@@ -247,7 +274,11 @@ package 文件
 - 任务 prompt 必须明确禁止修改哪些文件。
 - 任务 prompt 必须明确本轮不要做什么。
 - 任务 prompt 必须明确测试或构建命令；如果不运行，也要说明原因。
+- 任务 prompt 必须明确是否允许 `apply_patch`。
+- 任务 prompt 必须明确是否允许运行 `pytest` / `build`。
 - 任务 prompt 必须明确完成后的输出格式。
+- 搜索默认优先使用 `git grep` 或 `Get-ChildItem + Select-String`，不要默认依赖 `rg`。
+- 命令失败时先汇报，不要提权、不要清理、不要 reset。
 - 5.4 mini 任务必须极窄，通常只改 1 到 2 个文件。
 - 后端表/API 任务必须先验收再提交。
 - 涉及真实资料、数据库、依赖、Git 写入的任务必须额外确认。

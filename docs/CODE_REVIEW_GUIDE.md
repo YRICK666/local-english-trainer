@@ -10,12 +10,17 @@
 - 不修改文件。
 - 不写代码。
 - 不执行 Git 写入命令。
+- 不使用 `apply_patch`。
+- 不因为缺少 `rg`、删除失败或权限失败就放开沙盒权限。
 - 可以使用只读命令确认状态，例如：
   - `git status --short`
   - `git diff --name-only`
   - `git diff -- <path>`
   - `git log --oneline --decorate -10`
   - `git ls-files`
+  - `git grep "keyword"`
+  - `Get-Content .\path\to\file`
+  - `Get-ChildItem -Recurse -File -Include *.md,*.ts,*.tsx,*.py | Select-String "keyword"`
 - 禁止执行：
   - `git add`
   - `git commit`
@@ -26,8 +31,19 @@
   - `git checkout`
   - `git merge`
   - `git rebase`
+  - `apply_patch`
+  - 会写入文件的 PowerShell 命令
+  - 会生成产物的验证命令，除非用户当前明确要求
 
 如果用户明确要求不运行任何 Git 命令，则以用户当前指令为准，并在验收结论中说明无法用 Git 验证 diff。
+
+只读搜索优先顺序建议为：
+
+1. `git grep "keyword"`
+2. `Get-ChildItem ... | Select-String "keyword"`
+3. `Get-Content` 读取已定位文件
+
+如果搜索范围较大，应限制目录和后缀，避免扫到 `node_modules`、构建产物、缓存目录和无关附件。
 
 ## 2. Scope Check
 
@@ -48,6 +64,13 @@
    - 构建产物
    - Python 缓存
    - 真实学习资料正文
+
+处理未跟踪文件时：
+
+- 先记录其路径和类型，不要直接假设属于本轮改动。
+- 如果任务是只读验收，只做识别和汇报，不做清理。
+- 如果用户没有要求提交未跟踪文件，不要把它们算进“应提交文件”。
+- 如果未跟踪文件疑似构建产物、缓存或本地工具目录，应在结论中明确排除。
 
 ## 3. Backend Review Checklist
 
@@ -109,3 +132,17 @@
 9. 建议本地检查命令。
 
 如果任务要求“只输出结论”，优先遵守用户当前输出格式。
+
+
+## 7. PowerShell Search Snippets
+
+常用 PowerShell 只读搜索写法：
+
+- 全仓搜索：
+  - `Get-ChildItem -Recurse -File -Include *.md,*.ts,*.tsx,*.py | Select-String "keyword"`
+- 前端搜索：
+  - `Get-ChildItem -Path .\frontend\src -Recurse -File -Include *.ts,*.tsx | Select-String "keyword"`
+- 后端搜索：
+  - `Get-ChildItem -Path .\backend\app -Recurse -File -Include *.py | Select-String "keyword"`
+- 文档搜索：
+  - `Get-ChildItem -Path .\docs -Recurse -File -Include *.md | Select-String "keyword"`
