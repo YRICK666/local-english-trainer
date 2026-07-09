@@ -539,6 +539,13 @@ select {
   border-color: #7d9a74;
 }
 
+.annotation-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .annotation-row {
   display: grid;
   gap: 8px;

@@ -947,6 +947,17 @@ function WorkspaceView({
     ? "示例数据下不能保存标注，请先导入材料并启动后端。"
     : "手动输入你想保留的词、短语、句子或答案依据，保存到当前阅读材料。";
 
+  function handleUseSelectedText() {
+    const selectedText = window.getSelection()?.toString().trim() ?? "";
+    if (selectedText) {
+      setDraftSelectedText(selectedText);
+      setDraftError(null);
+      return;
+    }
+
+    setDraftError("请先在文章中选中一段文字。");
+  }
+
   async function handleSaveAnnotation() {
     const selectedText = draftSelectedText.trim();
     if (!selectedText) {
@@ -1125,6 +1136,16 @@ function WorkspaceView({
                   placeholder="输入要标注的词、短语或句子"
                   disabled={isUsingFallback || isAnnotationSaving}
                 />
+                <div className="annotation-inline-actions">
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={handleUseSelectedText}
+                    disabled={isUsingFallback || isAnnotationSaving}
+                  >
+                    填入选中文字
+                  </button>
+                </div>
               </label>
               <label className="annotation-field">
                 <span>备注</span>
