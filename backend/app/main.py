@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.app import schemas
 from backend.app.db import get_db, init_db
-from backend.app.services import annotation_service, practice_attempt_service, reading_pack_service
+from backend.app.services import annotation_service, practice_attempt_service, reading_pack_service, vocabulary_service
 
 app = FastAPI(title="local-english-trainer API")
 
@@ -90,4 +90,42 @@ def delete_annotation(annotation_id: str, db: Session = Depends(get_db)) -> sche
     try:
         return annotation_service.delete_annotation(db, annotation_id)
     except annotation_service.AnnotationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+
+@app.post("/api/vocabulary", response_model=schemas.VocabularyItemOut)
+def create_vocabulary_item(payload: schemas.VocabularyItemCreate, db: Session = Depends(get_db)) -> schemas.VocabularyItemOut:
+    try:
+        return vocabulary_service.create_vocabulary_item(db, payload)
+    except vocabulary_service.VocabularyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.get("/api/vocabulary", response_model=list[schemas.VocabularyItemOut])
+def list_vocabulary_items(db: Session = Depends(get_db)) -> list[schemas.VocabularyItemOut]:
+    return vocabulary_service.list_vocabulary_items(db)
+
+
+@app.get("/api/vocabulary/{vocab_id}", response_model=schemas.VocabularyItemOut)
+def get_vocabulary_item(vocab_id: str, db: Session = Depends(get_db)) -> schemas.VocabularyItemOut:
+    try:
+        return vocabulary_service.get_vocabulary_item(db, vocab_id)
+    except vocabulary_service.VocabularyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.patch("/api/vocabulary/{vocab_id}", response_model=schemas.VocabularyItemOut)
+def update_vocabulary_item(vocab_id: str, payload: schemas.VocabularyItemUpdate, db: Session = Depends(get_db)) -> schemas.VocabularyItemOut:
+    try:
+        return vocabulary_service.update_vocabulary_item(db, vocab_id, payload)
+    except vocabulary_service.VocabularyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.delete("/api/vocabulary/{vocab_id}", response_model=schemas.VocabularyDeleteResponse)
+def delete_vocabulary_item(vocab_id: str, db: Session = Depends(get_db)) -> schemas.VocabularyDeleteResponse:
+    try:
+        return vocabulary_service.delete_vocabulary_item(db, vocab_id)
+    except vocabulary_service.VocabularyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

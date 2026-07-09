@@ -136,3 +136,44 @@ class AnnotationOut(BaseModel):
 class AnnotationDeleteResponse(BaseModel):
     deleted: bool
     annotation_id: str
+
+
+
+class VocabularyItemCreate(BaseModel):
+    word: str
+    meaning: str | None = None
+    source_sentence: str | None = None
+    source_pack_id: str | None = None
+    source_passage_id: str | None = None
+    source_paragraph_id: str | None = None
+    source_annotation_id: str | None = None
+    review_status: str | None = None
+
+
+class VocabularyItemUpdate(BaseModel):
+    word: str | None = None
+    meaning: str | None = None
+    source_sentence: str | None = None
+    source_pack_id: str | None = None
+    source_passage_id: str | None = None
+    source_paragraph_id: str | None = None
+    source_annotation_id: str | None = None
+    review_status: str | None = None
+
+
+class VocabularyItemOut(BaseModel):
+    vocab_id: str
+    word: str
+    meaning: str | None = None
+    source_sentence: str | None = None
+    source_pack_id: str | None = None
+    source_passage_id: str | None = None
+    source_paragraph_id: str | None = None
+    source_annotation_id: str | None = None
+    review_status: str
+    created_at: datetime | None = None
+
+
+class VocabularyDeleteResponse(BaseModel):
+    deleted: bool
+    vocab_id: str

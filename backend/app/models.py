@@ -150,3 +150,20 @@ class ReadingAnnotation(Base):
     passage = relationship("Passage", back_populates="annotations")
     paragraph = relationship("Paragraph", back_populates="annotations")
     question = relationship("Question", back_populates="annotations")
+
+
+
+class VocabularyItem(Base):
+    __tablename__ = "vocabulary_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    vocab_id = Column(String(120), nullable=False, unique=True, index=True)
+    word = Column(String(255), nullable=False, index=True)
+    meaning = Column(Text, nullable=True)
+    source_sentence = Column(Text, nullable=True)
+    source_pack_id = Column(String(120), nullable=True, index=True)
+    source_passage_id = Column(String(120), nullable=True, index=True)
+    source_paragraph_id = Column(String(120), nullable=True, index=True)
+    source_annotation_id = Column(String(120), nullable=True, index=True)
+    review_status = Column(String(40), nullable=False, default="new")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
