@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { ApiError, createAnnotation, deleteAnnotation, getPracticeAttempt, getReadingPack, importReadingPack, listAnnotations, listPracticeAttempts, listReadingPacks, submitPracticeAttempt, validateReadingPack } from "./api";
+import { ApiError, createAnnotation, deleteAnnotation, deleteVocabularyItem, getPracticeAttempt, getReadingPack, getVocabularyItem, importReadingPack, listAnnotations, listPracticeAttempts, listReadingPacks, listVocabularyItems, submitPracticeAttempt, updateVocabularyItem, validateReadingPack } from "./api";
 import { mockReadingPack } from "./mockData";
-import type { AnnotationCreate, AnnotationType, ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingAnnotation, ReadingPack, ReadingPackImportResponse, ReadingPackSummary } from "./types";
+import type { AnnotationCreate, AnnotationType, ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingAnnotation, ReadingPack, ReadingPackImportResponse, ReadingPackSummary, VocabularyItem, VocabularyItemUpdate, VocabularyReviewStatus } from "./types";
 import "./styles.css";
 
 type ViewKey = "dashboard" | "import" | "library" | "workspace" | "attempts" | "vocabulary" | "sentences" | "settings";
@@ -65,6 +65,21 @@ function getAnnotationTypeLabel(type: AnnotationType) {
 
 function getParagraphLabel(order?: number) {
   return order ? `第 ${order} 段` : "段落";
+}
+
+const vocabularyReviewStatusOptions: { value: VocabularyReviewStatus; label: string }[] = [
+  { value: "new", label: "新词" },
+  { value: "learning", label: "学习中" },
+  { value: "familiar", label: "熟悉" }
+];
+
+function getVocabularyReviewStatusLabel(status: VocabularyReviewStatus) {
+  return vocabularyReviewStatusOptions.find((item) => item.value === status)?.label ?? status;
+}
+
+function normalizeNullableText(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 type ImportPreview = {
@@ -200,6 +215,14 @@ function App() {
   const [isAnnotationsLoading, setIsAnnotationsLoading] = useState(false);
   const [isAnnotationSaving, setIsAnnotationSaving] = useState(false);
   const [deletingAnnotationId, setDeletingAnnotationId] = useState<string | null>(null);
+  const [vocabularyItems, setVocabularyItems] = useState<VocabularyItem[]>([]);
+  const [selectedVocabularyId, setSelectedVocabularyId] = useState<string | null>(null);
+  const [selectedVocabularyItem, setSelectedVocabularyItem] = useState<VocabularyItem | null>(null);
+  const [vocabularyError, setVocabularyError] = useState<string | null>(null);
+  const [isVocabularyLoading, setIsVocabularyLoading] = useState(false);
+  const [isVocabularyDetailLoading, setIsVocabularyDetailLoading] = useState(false);
+  const [isVocabularySaving, setIsVocabularySaving] = useState(false);
+  const [deletingVocabularyId, setDeletingVocabularyId] = useState<string | null>(null);
 
   const orderedPassages = useMemo(() => sortPassages(pack.passages), [pack.passages]);
   const currentPassage = orderedPassages.find((item) => item.passage_id === currentPassageId) ?? orderedPassages[0];
@@ -219,6 +242,9 @@ function App() {
   const recentAttempt = attempts[0];
   const annotationUnavailableMessage = "后端未连接，标注暂时无法保存；阅读和作答仍可继续。";
   const fallbackAnnotationMessage = "示例数据下不能保存标注，请先导入材料并启动后端。";
+  const vocabularyUnavailableMessage = "后端未连接，暂时无法读取本地词库。";
+  const vocabularySaveUnavailableMessage = "后端未连接，暂时无法保存词条修改。";
+  const vocabularyDeleteUnavailableMessage = "后端未连接，暂时无法删除词条。";
 
   async function refreshAttempts() {
     try {
@@ -288,6 +314,100 @@ function App() {
     }
   }
 
+
+  async function openVocabularyItem(vocabId: string, fallbackItem?: VocabularyItem) {
+    setSelectedVocabularyId(vocabId);
+    setVocabularyError(null);
+    if (fallbackItem) {
+      setSelectedVocabularyItem(fallbackItem);
+    }
+
+    setIsVocabularyDetailLoading(true);
+    try {
+      const detail = await getVocabularyItem(vocabId);
+      setSelectedVocabularyItem(detail);
+      setVocabularyItems((prev) => prev.map((item) => item.vocab_id === detail.vocab_id ? detail : item));
+    } catch {
+      if (!fallbackItem) {
+        setSelectedVocabularyItem(null);
+      }
+      setVocabularyError(vocabularyUnavailableMessage);
+    } finally {
+      setIsVocabularyDetailLoading(false);
+    }
+  }
+
+  async function refreshVocabularyItems(preferredVocabId?: string) {
+    setIsVocabularyLoading(true);
+    setVocabularyError(null);
+    setDeletingVocabularyId(null);
+    try {
+      const items = await listVocabularyItems();
+      setVocabularyItems(items);
+      if (items.length === 0) {
+        setSelectedVocabularyId(null);
+        setSelectedVocabularyItem(null);
+        return;
+      }
+
+      const targetId = preferredVocabId && items.some((item) => item.vocab_id === preferredVocabId)
+        ? preferredVocabId
+        : selectedVocabularyId && items.some((item) => item.vocab_id === selectedVocabularyId)
+          ? selectedVocabularyId
+          : items[0].vocab_id;
+      const cachedItem = items.find((item) => item.vocab_id === targetId) ?? items[0];
+      await openVocabularyItem(cachedItem.vocab_id, cachedItem);
+    } catch {
+      setVocabularyItems([]);
+      setSelectedVocabularyId(null);
+      setSelectedVocabularyItem(null);
+      setVocabularyError(vocabularyUnavailableMessage);
+    } finally {
+      setIsVocabularyLoading(false);
+    }
+  }
+
+  async function handleUpdateVocabularyItem(vocabId: string, payload: VocabularyItemUpdate) {
+    setIsVocabularySaving(true);
+    setVocabularyError(null);
+    try {
+      const updated = await updateVocabularyItem(vocabId, payload);
+      setVocabularyItems((prev) => prev.map((item) => item.vocab_id === updated.vocab_id ? updated : item));
+      setSelectedVocabularyItem(updated);
+      setSelectedVocabularyId(updated.vocab_id);
+      return updated;
+    } catch {
+      setVocabularyError(vocabularySaveUnavailableMessage);
+      return null;
+    } finally {
+      setIsVocabularySaving(false);
+    }
+  }
+
+  async function handleDeleteVocabularyItem(vocabId: string) {
+    setDeletingVocabularyId(vocabId);
+    setVocabularyError(null);
+    try {
+      await deleteVocabularyItem(vocabId);
+      const remainingItems = vocabularyItems.filter((item) => item.vocab_id !== vocabId);
+      setVocabularyItems(remainingItems);
+      if (selectedVocabularyId === vocabId) {
+        if (remainingItems.length === 0) {
+          setSelectedVocabularyId(null);
+          setSelectedVocabularyItem(null);
+        } else {
+          const nextItem = remainingItems[0];
+          await openVocabularyItem(nextItem.vocab_id, nextItem);
+        }
+      }
+      return true;
+    } catch {
+      setVocabularyError(vocabularyDeleteUnavailableMessage);
+      return false;
+    } finally {
+      setDeletingVocabularyId(null);
+    }
+  }
   async function loadInitialData() {
     setWorkspaceError(null);
     setAnnotations([]);
@@ -404,6 +524,12 @@ function App() {
     loadInitialData();
   }, []);
 
+  useEffect(() => {
+    if (activeView === "vocabulary") {
+      void refreshVocabularyItems();
+    }
+  }, [activeView]);
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Main navigation">
@@ -492,7 +618,23 @@ function App() {
           <AttemptsView attempts={attempts} selectedAttempt={selectedAttempt} onRefresh={refreshAttempts} onOpenAttempt={openAttempt} />
         )}
         {activeView === "vocabulary" && (
-          <EmptyState title="Vocabulary" description="本阶段只做学习平台外壳与 Workspace 视觉升级；本地词库入口先保留清爽空状态。" />
+          <VocabularyView
+            items={vocabularyItems}
+            selectedItem={selectedVocabularyItem}
+            selectedVocabularyId={selectedVocabularyId}
+            vocabularyError={vocabularyError}
+            isLoading={isVocabularyLoading}
+            isDetailLoading={isVocabularyDetailLoading}
+            isSaving={isVocabularySaving}
+            deletingVocabularyId={deletingVocabularyId}
+            onRefresh={() => refreshVocabularyItems()}
+            onSelectItem={(vocabId) => {
+              const cachedItem = vocabularyItems.find((item) => item.vocab_id === vocabId);
+              void openVocabularyItem(vocabId, cachedItem);
+            }}
+            onUpdateItem={handleUpdateVocabularyItem}
+            onDeleteItem={handleDeleteVocabularyItem}
+          />
         )}
         {activeView === "sentences" && (
           <EmptyState title="Sentences" description="长难句库入口已放入侧边栏，本阶段不做真实入库、标注或高亮切分。" />
@@ -1199,6 +1341,234 @@ function WorkspaceView({
   );
 }
 
+function VocabularyView({
+  items,
+  selectedItem,
+  selectedVocabularyId,
+  vocabularyError,
+  isLoading,
+  isDetailLoading,
+  isSaving,
+  deletingVocabularyId,
+  onRefresh,
+  onSelectItem,
+  onUpdateItem,
+  onDeleteItem
+}: {
+  items: VocabularyItem[];
+  selectedItem: VocabularyItem | null;
+  selectedVocabularyId: string | null;
+  vocabularyError: string | null;
+  isLoading: boolean;
+  isDetailLoading: boolean;
+  isSaving: boolean;
+  deletingVocabularyId: string | null;
+  onRefresh: () => Promise<void>;
+  onSelectItem: (vocabId: string) => void;
+  onUpdateItem: (vocabId: string, payload: VocabularyItemUpdate) => Promise<VocabularyItem | null>;
+  onDeleteItem: (vocabId: string) => Promise<boolean>;
+}) {
+  const [draftMeaning, setDraftMeaning] = useState("");
+  const [draftSourceSentence, setDraftSourceSentence] = useState("");
+  const [draftReviewStatus, setDraftReviewStatus] = useState<VocabularyReviewStatus>("new");
+  const [formNotice, setFormNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftMeaning(selectedItem?.meaning ?? "");
+    setDraftSourceSentence(selectedItem?.source_sentence ?? "");
+    setDraftReviewStatus(selectedItem?.review_status ?? "new");
+    setFormNotice(null);
+  }, [selectedItem]);
+
+  async function handleSave() {
+    if (!selectedItem) {
+      return;
+    }
+
+    const payload: VocabularyItemUpdate = {};
+    const nextMeaning = normalizeNullableText(draftMeaning);
+    const nextSourceSentence = normalizeNullableText(draftSourceSentence);
+
+    if (nextMeaning !== (selectedItem.meaning ?? null)) {
+      payload.meaning = nextMeaning;
+    }
+    if (nextSourceSentence !== (selectedItem.source_sentence ?? null)) {
+      payload.source_sentence = nextSourceSentence;
+    }
+    if (draftReviewStatus !== selectedItem.review_status) {
+      payload.review_status = draftReviewStatus;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setFormNotice("当前没有需要保存的修改。");
+      return;
+    }
+
+    const updated = await onUpdateItem(selectedItem.vocab_id, payload);
+    if (updated) {
+      setFormNotice("词条已更新。");
+    }
+  }
+
+  async function handleDelete() {
+    if (!selectedItem) {
+      return;
+    }
+
+    const deleted = await onDeleteItem(selectedItem.vocab_id);
+    if (deleted) {
+      setFormNotice("词条已删除。");
+    }
+  }
+
+  return (
+    <section className="page-stack">
+      <div className="page-header slim">
+        <div>
+          <p className="eyebrow">Vocabulary</p>
+          <h1>本地词库</h1>
+          <p>查看已入库的词条，并维护释义、来源句和当前熟悉程度。</p>
+        </div>
+        <div className="inline-actions">
+          <button type="button" onClick={() => void onRefresh()}>刷新词库</button>
+        </div>
+      </div>
+
+      {vocabularyError && <div className="workspace-error">{vocabularyError}</div>}
+
+      {isLoading && items.length === 0 ? (
+        <div className="loading-card">正在读取本地词库……</div>
+      ) : items.length === 0 ? (
+        <div className="empty-state">
+          <h2>还没有词条</h2>
+          <p>还没有词条。你可以先在 Workspace 标注生词，后续会支持从标注加入词库。</p>
+        </div>
+      ) : (
+        <div className="vocabulary-layout">
+          <div className="vocabulary-list-panel">
+            <div className="section-title-row">
+              <div>
+                <p className="eyebrow">Items</p>
+                <h2>{items.length} 条词条</h2>
+              </div>
+            </div>
+            <div className="vocabulary-list">
+              {items.map((item) => (
+                <button
+                  key={item.vocab_id}
+                  type="button"
+                  className={selectedVocabularyId === item.vocab_id ? "vocabulary-row active" : "vocabulary-row"}
+                  onClick={() => onSelectItem(item.vocab_id)}
+                >
+                  <div>
+                    <strong>{item.word}</strong>
+                    <small>{item.meaning?.trim() ? item.meaning : "暂未填写释义"}</small>
+                  </div>
+                  <div className="vocabulary-row-meta">
+                    <span className={`review-status-pill ${item.review_status}`}>{getVocabularyReviewStatusLabel(item.review_status)}</span>
+                    <small>{formatDate(item.created_at ?? undefined)}</small>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="vocabulary-detail-panel">
+            {!selectedItem ? (
+              <EmptyState title="选择一条词条" description="点击左侧词条后，这里会显示可编辑的释义、来源句和复习状态。" />
+            ) : (
+              <div className="vocabulary-detail-stack">
+                <div className="section-title-row">
+                  <div>
+                    <p className="eyebrow">Detail</p>
+                    <h2>{selectedItem.word}</h2>
+                    <p className="muted-text">{isDetailLoading ? "正在刷新词条详情……" : "可直接编辑并保存到本地词库。"}</p>
+                  </div>
+                  <span className={`review-status-pill ${selectedItem.review_status}`}>{getVocabularyReviewStatusLabel(selectedItem.review_status)}</span>
+                </div>
+
+                <div className="vocabulary-meta-grid">
+                  <div className="vocabulary-meta-card">
+                    <strong>source_annotation_id</strong>
+                    <span>{selectedItem.source_annotation_id ?? "-"}</span>
+                  </div>
+                  <div className="vocabulary-meta-card">
+                    <strong>created_at</strong>
+                    <span>{formatDate(selectedItem.created_at ?? undefined)}</span>
+                  </div>
+                  <div className="vocabulary-meta-card">
+                    <strong>word</strong>
+                    <span>{selectedItem.word}</span>
+                  </div>
+                  <div className="vocabulary-meta-card">
+                    <strong>review_status</strong>
+                    <span>{selectedItem.review_status}</span>
+                  </div>
+                </div>
+
+                <div className="vocabulary-edit-form">
+                  <label className="vocabulary-field">
+                    <span>meaning</span>
+                    <textarea
+                      value={draftMeaning}
+                      onChange={(event) => setDraftMeaning(event.target.value)}
+                      placeholder="补充这个词条的中文释义或英文说明"
+                      disabled={isSaving || deletingVocabularyId === selectedItem.vocab_id}
+                    />
+                  </label>
+
+                  <label className="vocabulary-field">
+                    <span>source_sentence</span>
+                    <textarea
+                      value={draftSourceSentence}
+                      onChange={(event) => setDraftSourceSentence(event.target.value)}
+                      placeholder="补充这个词条来自哪一句原文"
+                      disabled={isSaving || deletingVocabularyId === selectedItem.vocab_id}
+                    />
+                  </label>
+
+                  <label className="vocabulary-field">
+                    <span>review_status</span>
+                    <select
+                      value={draftReviewStatus}
+                      onChange={(event) => setDraftReviewStatus(event.target.value as VocabularyReviewStatus)}
+                      disabled={isSaving || deletingVocabularyId === selectedItem.vocab_id}
+                    >
+                      {vocabularyReviewStatusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.value} · {option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {formNotice && <div className="workspace-status vocabulary-status">{formNotice}</div>}
+
+                  <div className="vocabulary-actions">
+                    <button
+                      className="primary-action"
+                      type="button"
+                      onClick={() => void handleSave()}
+                      disabled={isSaving || deletingVocabularyId === selectedItem.vocab_id}
+                    >
+                      {isSaving ? "保存中……" : "保存修改"}
+                    </button>
+                    <button
+                      className="danger-action"
+                      type="button"
+                      onClick={() => void handleDelete()}
+                      disabled={deletingVocabularyId === selectedItem.vocab_id || isSaving}
+                    >
+                      {deletingVocabularyId === selectedItem.vocab_id ? "删除中……" : "删除词条"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
 function AttemptResult({ result }: { result: PracticeAttemptDetail }) {
   const status = getAttemptStatus(result.accuracy);
 
@@ -1286,3 +1656,9 @@ function AttemptsView({
 }
 
 export default App;
+
+
+
+
+
+

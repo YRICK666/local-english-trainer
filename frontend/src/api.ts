@@ -8,7 +8,10 @@ import type {
   ReadingAnnotation,
   ReadingPack,
   ReadingPackImportResponse,
-  ReadingPackSummary
+  ReadingPackSummary,
+  VocabularyDeleteResponse,
+  VocabularyItem,
+  VocabularyItemUpdate
 } from "./types";
 
 export class ApiError extends Error {
@@ -93,6 +96,27 @@ export function createAnnotation(payload: AnnotationCreate) {
 
 export function deleteAnnotation(annotationId: string) {
   return requestJson<AnnotationDeleteResponse>(`/api/annotations/${encodeURIComponent(annotationId)}`, {
+    method: "DELETE"
+  });
+}
+
+export function listVocabularyItems() {
+  return requestJson<VocabularyItem[]>("/api/vocabulary");
+}
+
+export function getVocabularyItem(vocabId: string) {
+  return requestJson<VocabularyItem>(`/api/vocabulary/${encodeURIComponent(vocabId)}`);
+}
+
+export function updateVocabularyItem(vocabId: string, payload: VocabularyItemUpdate) {
+  return requestJson<VocabularyItem>(`/api/vocabulary/${encodeURIComponent(vocabId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteVocabularyItem(vocabId: string) {
+  return requestJson<VocabularyDeleteResponse>(`/api/vocabulary/${encodeURIComponent(vocabId)}`, {
     method: "DELETE"
   });
 }

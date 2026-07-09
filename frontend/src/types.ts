@@ -130,3 +130,34 @@ export type AnnotationDeleteResponse = {
   deleted: boolean;
   annotation_id: string;
 };
+export type VocabularyReviewStatus = "new" | "learning" | "familiar";
+
+export type VocabularyItem = {
+  vocab_id: string;
+  word: string;
+  meaning?: string | null;
+  source_sentence?: string | null;
+  source_pack_id?: string | null;
+  source_passage_id?: string | null;
+  source_paragraph_id?: string | null;
+  source_annotation_id?: string | null;
+  review_status: VocabularyReviewStatus;
+  created_at?: string | null;
+};
+
+export type VocabularyItemUpdate = {
+  word?: string | null;
+  meaning?: string | null;
+  source_sentence?: string | null;
+  source_pack_id?: string | null;
+  source_passage_id?: string | null;
+  source_paragraph_id?: string | null;
+  source_annotation_id?: string | null;
+  review_status?: VocabularyReviewStatus | null;
+};
+
+export type VocabularyDeleteResponse = {
+  deleted: boolean;
+  vocab_id: string;
+};
+

@@ -739,6 +739,9 @@ select {
   .training-actions button { width: 100%; }
   .attempt-metric { justify-items: start; }
   .answer-review { grid-template-columns: 1fr; }
+  .vocabulary-row,
+  .vocabulary-actions { display: grid; }
+  .vocabulary-row-meta { justify-items: start; }
   .article-pane,
   .question-pane { padding: 18px; }
   .passage-switcher {
@@ -879,6 +882,11 @@ select {
   .import-panel {
     grid-template-columns: 1fr;
   }
+
+  .vocabulary-layout,
+  .vocabulary-meta-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -889,4 +897,151 @@ select {
   .json-input {
     min-height: 280px;
   }
+}
+
+
+.vocabulary-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.vocabulary-list-panel,
+.vocabulary-detail-panel {
+  padding: 16px;
+  border: 1px solid #dfe3da;
+  border-radius: 8px;
+  background: #fffefb;
+}
+
+.vocabulary-list,
+.vocabulary-detail-stack,
+.vocabulary-edit-form {
+  display: grid;
+  gap: 12px;
+}
+
+.vocabulary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #dfe3da;
+  border-radius: 8px;
+  background: #fffefb;
+  color: #30352f;
+  text-align: left;
+}
+
+.vocabulary-row div:first-child,
+.vocabulary-row-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.vocabulary-row small,
+.vocabulary-meta-card strong {
+  color: #748073;
+}
+
+.vocabulary-row.active {
+  border-color: #8fab85;
+  background: #eef5ea;
+}
+
+.vocabulary-row-meta {
+  justify-items: end;
+}
+
+.review-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid #ced8ca;
+  border-radius: 999px;
+  background: #f5f8f3;
+  color: #425244;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.review-status-pill.new {
+  border-color: #c8d4b6;
+  background: #f5f7ea;
+  color: #6b6b2f;
+}
+
+.review-status-pill.learning {
+  border-color: #bfd0b8;
+  background: #eaf2e5;
+  color: #2f6b3b;
+}
+
+.review-status-pill.familiar {
+  border-color: #9fbea0;
+  background: #edf6e9;
+  color: #2c6338;
+}
+
+.vocabulary-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.vocabulary-meta-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #e0e4db;
+  border-radius: 8px;
+  background: #fbfcf8;
+}
+
+.vocabulary-meta-card span {
+  color: #29352d;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.vocabulary-field {
+  display: grid;
+  gap: 6px;
+}
+
+.vocabulary-field span {
+  color: #5f6d61;
+  font-size: 13px;
+}
+
+.vocabulary-field textarea {
+  min-height: 88px;
+  padding: 10px 12px;
+  border: 1px solid #ced8ca;
+  border-radius: 8px;
+  background: #fffefb;
+  color: #253129;
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.vocabulary-field textarea:focus {
+  outline: 2px solid rgba(49, 95, 59, 0.16);
+  border-color: #7d9a74;
+}
+
+.vocabulary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.vocabulary-status {
+  margin-top: 0;
 }
