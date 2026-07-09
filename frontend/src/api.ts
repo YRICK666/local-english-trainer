@@ -11,6 +11,7 @@ import type {
   ReadingPackSummary,
   VocabularyDeleteResponse,
   VocabularyItem,
+  VocabularyItemCreate,
   VocabularyItemUpdate
 } from "./types";
 
@@ -97,6 +98,13 @@ export function createAnnotation(payload: AnnotationCreate) {
 export function deleteAnnotation(annotationId: string) {
   return requestJson<AnnotationDeleteResponse>(`/api/annotations/${encodeURIComponent(annotationId)}`, {
     method: "DELETE"
+  });
+}
+
+export function createVocabularyItem(payload: VocabularyItemCreate) {
+  return requestJson<VocabularyItem>("/api/vocabulary", {
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }
 

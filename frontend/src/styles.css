@@ -753,6 +753,9 @@ select {
   .annotation-meta {
     display: grid;
   }
+  .annotation-row-actions {
+    display: grid;
+  }
   .paragraphs p { font-size: 17px; line-height: 1.82; }
 }
 .import-panel {
@@ -1043,5 +1046,17 @@ select {
 }
 
 .vocabulary-status {
+  margin-top: 0;
+}
+
+
+.annotation-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.annotation-status {
   margin-top: 0;
 }

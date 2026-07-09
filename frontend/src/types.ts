@@ -132,6 +132,17 @@ export type AnnotationDeleteResponse = {
 };
 export type VocabularyReviewStatus = "new" | "learning" | "familiar";
 
+export type VocabularyItemCreate = {
+  word: string;
+  meaning?: string | null;
+  source_sentence?: string | null;
+  source_pack_id?: string | null;
+  source_passage_id?: string | null;
+  source_paragraph_id?: string | null;
+  source_annotation_id?: string | null;
+  review_status?: VocabularyReviewStatus | null;
+};
+
 export type VocabularyItem = {
   vocab_id: string;
   word: string;
