@@ -92,7 +92,28 @@ function normalizeNullableText(value: string) {
   return trimmed ? trimmed : null;
 }
 
+function formatSourceValue(value?: string | null) {
+  return value?.trim() ? value : "未记录";
+}
+
+function hasSourceNavigationTarget(sourcePackId?: string | null, sourcePassageId?: string | null) {
+  return Boolean(sourcePackId?.trim() && sourcePassageId?.trim());
+}
+
+function getSourceKindLabel(kind: SourceKind) {
+  return kind === "vocabulary" ? "词库来源" : "句库来源";
+}
+
 type ReviewStatusFilterValue = "all" | "new" | "learning" | "familiar";
+type SourceKind = "vocabulary" | "sentence";
+
+type SourceTarget = {
+  sourceKind: SourceKind;
+  sourcePackId: string;
+  sourcePassageId: string;
+  sourceParagraphId?: string | null;
+  sourceAnnotationId?: string | null;
+};
 
 const reviewStatusFilterOptions: { value: ReviewStatusFilterValue; label: string }[] = [
   { value: "all", label: "全部" },
@@ -272,6 +293,7 @@ function App() {
   const [isVocabularyDetailLoading, setIsVocabularyDetailLoading] = useState(false);
   const [isVocabularySaving, setIsVocabularySaving] = useState(false);
   const [deletingVocabularyId, setDeletingVocabularyId] = useState<string | null>(null);
+  const [openingVocabularySourceId, setOpeningVocabularySourceId] = useState<string | null>(null);
   const [sentenceItems, setSentenceItems] = useState<SentenceItem[]>([]);
   const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
   const [selectedSentenceItem, setSelectedSentenceItem] = useState<SentenceItem | null>(null);
@@ -280,6 +302,8 @@ function App() {
   const [isSentenceDetailLoading, setIsSentenceDetailLoading] = useState(false);
   const [isSentenceSaving, setIsSentenceSaving] = useState(false);
   const [deletingSentenceId, setDeletingSentenceId] = useState<string | null>(null);
+  const [openingSentenceSourceId, setOpeningSentenceSourceId] = useState<string | null>(null);
+  const [sourceTarget, setSourceTarget] = useState<SourceTarget | null>(null);
 
   const orderedPassages = useMemo(() => sortPassages(pack.passages), [pack.passages]);
   const currentPassage = orderedPassages.find((item) => item.passage_id === currentPassageId) ?? orderedPassages[0];
@@ -307,6 +331,21 @@ function App() {
   const sentenceUnavailableMessage = "后端未连接，暂时无法读取本地句库。";
   const sentenceSaveUnavailableMessage = "后端未连接，暂时无法保存句条修改。";
   const sentenceDeleteUnavailableMessage = "后端未连接，暂时无法删除句条。";
+
+  function clearSourceTarget() {
+    setSourceTarget(null);
+  }
+
+  function applyLoadedPackState(nextPack: ReadingPack, nextView: ViewKey, nextPassageId?: string) {
+    setPack(nextPack);
+    setSelectedAnswers({});
+    setCurrentPassageId(nextPassageId ?? sortPassages(nextPack.passages)[0]?.passage_id ?? "");
+    setLatestAttempt(null);
+    setSelectedAttempt(null);
+    setNotice("");
+    setIsUsingFallback(false);
+    setActiveView(nextView);
+  }
 
   async function refreshAttempts() {
     try {
@@ -630,6 +669,7 @@ function App() {
     }
   }
   async function loadInitialData() {
+    clearSourceTarget();
     setWorkspaceError(null);
     setAnnotations([]);
     setAnnotationError(null);
@@ -639,12 +679,7 @@ function App() {
       const summaries = await refreshReadingPacks();
       if (summaries.length > 0) {
         const firstPack = await getReadingPack(summaries[0].pack_id);
-        setPack(firstPack);
-        setSelectedAnswers({});
-        setCurrentPassageId(sortPassages(firstPack.passages)[0]?.passage_id ?? "");
-        setLatestAttempt(null);
-        setSelectedAttempt(null);
-        setNotice("");
+        applyLoadedPackState(firstPack, activeView === "workspace" ? "workspace" : activeView);
         await refreshAnnotations(firstPack.pack_id);
       } else {
         setPack(mockReadingPack);
@@ -678,14 +713,7 @@ function App() {
     setDeletingAnnotationId(null);
     try {
       const nextPack = await getReadingPack(packId);
-      setPack(nextPack);
-      setSelectedAnswers({});
-      setCurrentPassageId(sortPassages(nextPack.passages)[0]?.passage_id ?? "");
-      setLatestAttempt(null);
-      setSelectedAttempt(null);
-      setNotice("");
-      setIsUsingFallback(false);
-      setActiveView(nextView);
+      applyLoadedPackState(nextPack, nextView);
       await refreshAnnotations(nextPack.pack_id);
     } catch {
       setAnnotations([]);
@@ -734,6 +762,7 @@ function App() {
 
   async function handleOpenImportedPack(packId: string) {
     try {
+      clearSourceTarget();
       await refreshReadingPacks();
       await loadPack(packId, "workspace");
     } catch {
@@ -748,6 +777,86 @@ function App() {
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  async function handleOpenSource(target: SourceTarget) {
+    const normalizedPackId = target.sourcePackId.trim();
+    const normalizedPassageId = target.sourcePassageId.trim();
+
+    if (!normalizedPackId || !normalizedPassageId) {
+      const message = "来源信息不完整，暂时无法回看。";
+      if (target.sourceKind === "vocabulary") {
+        setVocabularyError(message);
+      } else {
+        setSentenceError(message);
+      }
+      return false;
+    }
+
+    if (target.sourceKind === "vocabulary") {
+      setOpeningVocabularySourceId(target.sourceAnnotationId ?? target.sourceParagraphId ?? normalizedPassageId);
+      setVocabularyError(null);
+    } else {
+      setOpeningSentenceSourceId(target.sourceAnnotationId ?? target.sourceParagraphId ?? normalizedPassageId);
+      setSentenceError(null);
+    }
+
+    try {
+      if (pack.pack_id === normalizedPackId) {
+        const hasPassage = pack.passages.some((passage) => passage.passage_id === normalizedPassageId);
+        if (!hasPassage) {
+          throw new Error(`目标 passage 不存在：${normalizedPassageId}`);
+        }
+
+        setActiveView("workspace");
+        setCurrentPassageId(normalizedPassageId);
+        setSourceTarget({
+          ...target,
+          sourcePackId: normalizedPackId,
+          sourcePassageId: normalizedPassageId
+        });
+        return true;
+      }
+
+      setIsPackLoading(true);
+      const nextPack = await getReadingPack(normalizedPackId);
+      const hasPassage = nextPack.passages.some((passage) => passage.passage_id === normalizedPassageId);
+      if (!hasPassage) {
+        throw new Error(`目标 passage 不存在：${normalizedPassageId}`);
+      }
+
+      setWorkspaceError(null);
+      setAnnotations([]);
+      setAnnotationError(null);
+      setAnnotationNotice(null);
+      setDeletingAnnotationId(null);
+      applyLoadedPackState(nextPack, "workspace", normalizedPassageId);
+      setSourceTarget({
+        ...target,
+        sourcePackId: normalizedPackId,
+        sourcePassageId: normalizedPassageId
+      });
+      await refreshAnnotations(nextPack.pack_id);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error && error.message.includes("目标 passage 不存在")
+        ? `来源回看失败：${error.message}`
+        : "来源回看失败：无法读取目标材料，pack 可能不存在或后端未连接。";
+
+      if (target.sourceKind === "vocabulary") {
+        setVocabularyError(message);
+      } else {
+        setSentenceError(message);
+      }
+      return false;
+    } finally {
+      if (target.sourceKind === "vocabulary") {
+        setOpeningVocabularySourceId(null);
+      } else {
+        setOpeningSentenceSourceId(null);
+      }
+      setIsPackLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (activeView === "vocabulary") {
@@ -808,7 +917,10 @@ function App() {
             currentPack={pack}
             isUsingFallback={isUsingFallback}
             onRefresh={loadInitialData}
-            onOpenPack={(packId) => loadPack(packId)}
+            onOpenPack={(packId) => {
+              clearSourceTarget();
+              void loadPack(packId);
+            }}
           />
         )}
         {activeView === "workspace" && (
@@ -835,9 +947,17 @@ function App() {
             isPackLoading={isPackLoading}
             isSubmitting={isSubmitting}
             workspaceError={workspaceError}
+            sourceTarget={sourceTarget}
+            onClearSourceTarget={clearSourceTarget}
             onRefresh={loadInitialData}
-            onLoadPack={(packId) => loadPack(packId, "workspace")}
-            onSelectPassage={setCurrentPassageId}
+            onLoadPack={(packId) => {
+              clearSourceTarget();
+              void loadPack(packId, "workspace");
+            }}
+            onSelectPassage={(passageId) => {
+              clearSourceTarget();
+              setCurrentPassageId(passageId);
+            }}
             onSelectAnswer={(questionId, answer) => setSelectedAnswers((prev) => ({ ...prev, [questionId]: answer }))}
             onCreateAnnotation={handleCreateAnnotation}
             onDeleteAnnotation={handleDeleteAnnotation}
@@ -865,6 +985,8 @@ function App() {
               const cachedItem = vocabularyItems.find((item) => item.vocab_id === vocabId);
               void openVocabularyItem(vocabId, cachedItem);
             }}
+            openingSourceId={openingVocabularySourceId}
+            onOpenSource={handleOpenSource}
             onUpdateItem={handleUpdateVocabularyItem}
             onDeleteItem={handleDeleteVocabularyItem}
           />
@@ -884,6 +1006,8 @@ function App() {
               const cachedItem = sentenceItems.find((item) => item.sentence_id === sentenceId);
               void openSentenceItem(sentenceId, cachedItem);
             }}
+            openingSourceId={openingSentenceSourceId}
+            onOpenSource={handleOpenSource}
             onUpdateItem={handleUpdateSentenceItem}
             onDeleteItem={handleDeleteSentenceItem}
           />
@@ -1277,6 +1401,8 @@ function WorkspaceView({
   isPackLoading,
   isSubmitting,
   workspaceError,
+  sourceTarget,
+  onClearSourceTarget,
   onRefresh,
   onLoadPack,
   onSelectPassage,
@@ -1310,6 +1436,8 @@ function WorkspaceView({
   isPackLoading: boolean;
   isSubmitting: boolean;
   workspaceError: string | null;
+  sourceTarget: SourceTarget | null;
+  onClearSourceTarget: () => void;
   onRefresh: () => void;
   onLoadPack: (packId: string) => void;
   onSelectPassage: (passageId: string) => void;
@@ -1344,6 +1472,25 @@ function WorkspaceView({
   const questionLabelMap = useMemo(() => new Map(
     currentPassageQuestions.map((question) => [question.question_id, question.question_no || question.question_id])
   ), [currentPassageQuestions]);
+  const currentSourceTarget = sourceTarget
+    && sourceTarget.sourcePackId === pack.pack_id
+    && sourceTarget.sourcePassageId === currentPassage?.passage_id
+      ? sourceTarget
+      : null;
+  const hasTargetParagraph = currentSourceTarget?.sourceParagraphId
+    ? Boolean(currentPassage?.paragraphs.some((paragraph) => paragraph.paragraph_id === currentSourceTarget.sourceParagraphId))
+    : false;
+  const hasTargetAnnotation = currentSourceTarget?.sourceAnnotationId
+    ? currentPassageAnnotations.some((annotation) => annotation.annotation_id === currentSourceTarget.sourceAnnotationId)
+    : false;
+  const sourceTargetMessage = currentSourceTarget
+    ? [
+        `正在回看${getSourceKindLabel(currentSourceTarget.sourceKind)}。`,
+        currentSourceTarget.sourceParagraphId && !hasTargetParagraph ? "来源段落不存在，已降级定位到当前 passage。" : null,
+        currentSourceTarget.sourceAnnotationId && !hasTargetAnnotation ? "来源标注不存在，已降级定位到当前 passage。" : null,
+        !currentSourceTarget.sourceParagraphId && !currentSourceTarget.sourceAnnotationId ? "当前仅定位到来源 passage。" : null
+      ].filter((item): item is string => Boolean(item)).join(" ")
+    : null;
   const annotationHelperText = isUsingFallback
     ? "示例数据下不能保存标注，请先导入材料并启动后端。"
     : "手动输入你想保留的词、短语、句子或答案依据，保存到当前阅读材料。";
@@ -1358,6 +1505,29 @@ function WorkspaceView({
 
     setDraftError("请先在文章中选中一段文字。");
   }
+
+  useEffect(() => {
+    if (!currentSourceTarget) {
+      return;
+    }
+
+    const targetElementId = hasTargetParagraph && currentSourceTarget.sourceParagraphId
+      ? `workspace-paragraph-${currentSourceTarget.sourceParagraphId}`
+      : hasTargetAnnotation && currentSourceTarget.sourceAnnotationId
+        ? `workspace-annotation-${currentSourceTarget.sourceAnnotationId}`
+        : null;
+
+    if (!targetElementId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const element = document.getElementById(targetElementId);
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [currentSourceTarget, hasTargetAnnotation, hasTargetParagraph]);
 
   async function handleSaveAnnotation() {
     const selectedText = draftSelectedText.trim();
@@ -1409,6 +1579,13 @@ function WorkspaceView({
         <div className="inline-status">还没有导入阅读材料，请先到 Import 页面导入。当前显示示例数据。</div>
       )}
 
+      {sourceTargetMessage && (
+        <div className="workspace-source-banner">
+          <span>{sourceTargetMessage}</span>
+          <button type="button" className="secondary-action" onClick={onClearSourceTarget}>清除定位</button>
+        </div>
+      )}
+
       {isPackLoading ? (
         <div className="loading-card">正在打开这篇训练材料……</div>
       ) : (
@@ -1444,7 +1621,13 @@ function WorkspaceView({
           </div>
           <div className="paragraphs">
             {currentPassage?.paragraphs.map((paragraph) => (
-              <p key={paragraph.paragraph_id}><span>{paragraph.order}</span>{paragraph.text}</p>
+              <p
+                key={paragraph.paragraph_id}
+                id={`workspace-paragraph-${paragraph.paragraph_id}`}
+                className={currentSourceTarget?.sourceParagraphId === paragraph.paragraph_id ? "workspace-paragraph highlighted" : "workspace-paragraph"}
+              >
+                <span>{paragraph.order}</span>{paragraph.text}
+              </p>
             ))}
           </div>
         </article>
@@ -1570,7 +1753,11 @@ function WorkspaceView({
               {currentPassageAnnotations.length === 0 ? (
                 <p className="annotation-empty">当前 passage 还没有标注。</p>
               ) : currentPassageAnnotations.map((annotation) => (
-                <div key={annotation.annotation_id} className="annotation-row">
+                <div
+                  key={annotation.annotation_id}
+                  id={`workspace-annotation-${annotation.annotation_id}`}
+                  className={currentSourceTarget?.sourceAnnotationId === annotation.annotation_id ? "annotation-row highlighted" : "annotation-row"}
+                >
                   <div className="annotation-meta">
                     <span className="annotation-type-pill">{getAnnotationTypeLabel(annotation.annotation_type)}</span>
                     <span>{paragraphLabelMap.get(annotation.paragraph_id) ?? annotation.paragraph_id}</span>
@@ -1632,8 +1819,10 @@ function VocabularyView({
   isDetailLoading,
   isSaving,
   deletingVocabularyId,
+  openingSourceId,
   onRefresh,
   onSelectItem,
+  onOpenSource,
   onUpdateItem,
   onDeleteItem
 }: {
@@ -1645,8 +1834,10 @@ function VocabularyView({
   isDetailLoading: boolean;
   isSaving: boolean;
   deletingVocabularyId: string | null;
+  openingSourceId: string | null;
   onRefresh: () => Promise<void>;
   onSelectItem: (vocabId: string) => void;
+  onOpenSource: (target: SourceTarget) => Promise<boolean>;
   onUpdateItem: (vocabId: string, payload: VocabularyItemUpdate) => Promise<VocabularyItem | null>;
   onDeleteItem: (vocabId: string) => Promise<boolean>;
 }) {
@@ -1676,6 +1867,22 @@ function VocabularyView({
     setDraftReviewStatus(selectedItem?.review_status ?? "new");
     setFormNotice(null);
   }, [selectedItem]);
+
+  const canOpenSource = hasSourceNavigationTarget(selectedItem?.source_pack_id, selectedItem?.source_passage_id);
+
+  async function handleOpenSelectedSource() {
+    if (!selectedItem || !canOpenSource) {
+      return;
+    }
+
+    await onOpenSource({
+      sourceKind: "vocabulary",
+      sourcePackId: selectedItem.source_pack_id ?? "",
+      sourcePassageId: selectedItem.source_passage_id ?? "",
+      sourceParagraphId: selectedItem.source_paragraph_id ?? null,
+      sourceAnnotationId: selectedItem.source_annotation_id ?? null
+    });
+  }
 
   async function handleSave() {
     if (!selectedItem) {
@@ -1791,21 +1998,44 @@ function VocabularyView({
 
                 <div className="vocabulary-meta-grid">
                   <div className="vocabulary-meta-card">
-                    <strong>source_annotation_id</strong>
-                    <span>{selectedItem.source_annotation_id ?? "-"}</span>
+                    <strong>来源材料</strong>
+                    <span>{formatSourceValue(selectedItem.source_pack_id)}</span>
                   </div>
                   <div className="vocabulary-meta-card">
-                    <strong>created_at</strong>
+                    <strong>来源篇章</strong>
+                    <span>{formatSourceValue(selectedItem.source_passage_id)}</span>
+                  </div>
+                  <div className="vocabulary-meta-card">
+                    <strong>来源段落</strong>
+                    <span>{formatSourceValue(selectedItem.source_paragraph_id)}</span>
+                  </div>
+                  <div className="vocabulary-meta-card">
+                    <strong>来源标注</strong>
+                    <span>{formatSourceValue(selectedItem.source_annotation_id)}</span>
+                  </div>
+                  <div className="vocabulary-meta-card">
+                    <strong>创建时间</strong>
                     <span>{formatDate(selectedItem.created_at ?? undefined)}</span>
                   </div>
                   <div className="vocabulary-meta-card">
-                    <strong>word</strong>
-                    <span>{selectedItem.word}</span>
-                  </div>
-                  <div className="vocabulary-meta-card">
-                    <strong>review_status</strong>
+                    <strong>复习状态</strong>
                     <span>{selectedItem.review_status}</span>
                   </div>
+                </div>
+
+                <div className="source-return-panel">
+                  {canOpenSource ? (
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={() => void handleOpenSelectedSource()}
+                      disabled={openingSourceId === (selectedItem.source_annotation_id ?? selectedItem.source_paragraph_id ?? selectedItem.source_passage_id ?? selectedItem.vocab_id)}
+                    >
+                      {openingSourceId === (selectedItem.source_annotation_id ?? selectedItem.source_paragraph_id ?? selectedItem.source_passage_id ?? selectedItem.vocab_id) ? "打开中……" : "回到来源"}
+                    </button>
+                  ) : (
+                    <p className="source-return-hint">来源信息不完整，暂时无法回看。</p>
+                  )}
                 </div>
 
                 <div className="vocabulary-edit-form">
@@ -1880,8 +2110,10 @@ function SentencesView({
   isDetailLoading,
   isSaving,
   deletingSentenceId,
+  openingSourceId,
   onRefresh,
   onSelectItem,
+  onOpenSource,
   onUpdateItem,
   onDeleteItem
 }: {
@@ -1893,8 +2125,10 @@ function SentencesView({
   isDetailLoading: boolean;
   isSaving: boolean;
   deletingSentenceId: string | null;
+  openingSourceId: string | null;
   onRefresh: () => Promise<void>;
   onSelectItem: (sentenceId: string) => void;
+  onOpenSource: (target: SourceTarget) => Promise<boolean>;
   onUpdateItem: (sentenceId: string, payload: SentenceItemUpdate) => Promise<SentenceItem | null>;
   onDeleteItem: (sentenceId: string) => Promise<boolean>;
 }) {
@@ -1924,6 +2158,22 @@ function SentencesView({
     setDraftReviewStatus(selectedItem?.review_status ?? "new");
     setFormNotice(null);
   }, [selectedItem]);
+
+  const canOpenSource = hasSourceNavigationTarget(selectedItem?.source_pack_id, selectedItem?.source_passage_id);
+
+  async function handleOpenSelectedSource() {
+    if (!selectedItem || !canOpenSource) {
+      return;
+    }
+
+    await onOpenSource({
+      sourceKind: "sentence",
+      sourcePackId: selectedItem.source_pack_id ?? "",
+      sourcePassageId: selectedItem.source_passage_id ?? "",
+      sourceParagraphId: selectedItem.source_paragraph_id ?? null,
+      sourceAnnotationId: selectedItem.source_annotation_id ?? null
+    });
+  }
 
   async function handleSave() {
     if (!selectedItem) {
@@ -2039,21 +2289,44 @@ function SentencesView({
 
                 <div className="sentences-meta-grid">
                   <div className="sentences-meta-card">
-                    <strong>source_annotation_id</strong>
-                    <span>{selectedItem.source_annotation_id ?? "-"}</span>
+                    <strong>来源材料</strong>
+                    <span>{formatSourceValue(selectedItem.source_pack_id)}</span>
                   </div>
                   <div className="sentences-meta-card">
-                    <strong>created_at</strong>
+                    <strong>来源篇章</strong>
+                    <span>{formatSourceValue(selectedItem.source_passage_id)}</span>
+                  </div>
+                  <div className="sentences-meta-card">
+                    <strong>来源段落</strong>
+                    <span>{formatSourceValue(selectedItem.source_paragraph_id)}</span>
+                  </div>
+                  <div className="sentences-meta-card">
+                    <strong>来源标注</strong>
+                    <span>{formatSourceValue(selectedItem.source_annotation_id)}</span>
+                  </div>
+                  <div className="sentences-meta-card">
+                    <strong>创建时间</strong>
                     <span>{formatDate(selectedItem.created_at ?? undefined)}</span>
                   </div>
                   <div className="sentences-meta-card">
-                    <strong>sentence_text</strong>
-                    <span>{selectedItem.sentence_text}</span>
-                  </div>
-                  <div className="sentences-meta-card">
-                    <strong>review_status</strong>
+                    <strong>复习状态</strong>
                     <span>{selectedItem.review_status}</span>
                   </div>
+                </div>
+
+                <div className="source-return-panel">
+                  {canOpenSource ? (
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={() => void handleOpenSelectedSource()}
+                      disabled={openingSourceId === (selectedItem.source_annotation_id ?? selectedItem.source_paragraph_id ?? selectedItem.source_passage_id ?? selectedItem.sentence_id)}
+                    >
+                      {openingSourceId === (selectedItem.source_annotation_id ?? selectedItem.source_paragraph_id ?? selectedItem.source_passage_id ?? selectedItem.sentence_id) ? "打开中……" : "回到来源"}
+                    </button>
+                  ) : (
+                    <p className="source-return-hint">来源信息不完整，暂时无法回看。</p>
+                  )}
                 </div>
 
                 <div className="sentences-edit-form">
