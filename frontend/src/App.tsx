@@ -92,6 +92,15 @@ function normalizeNullableText(value: string) {
   return trimmed ? trimmed : null;
 }
 
+type ReviewStatusFilterValue = "all" | "new" | "learning" | "familiar";
+
+const reviewStatusFilterOptions: { value: ReviewStatusFilterValue; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "new", label: "new" },
+  { value: "learning", label: "learning" },
+  { value: "familiar", label: "familiar" }
+];
+
 type ImportPreview = {
   packId: string;
   title: string;
@@ -201,6 +210,33 @@ function EmptyState({ title, description }: { title: string; description: string
     <div className="empty-state">
       <h2>{title}</h2>
       <p>{description}</p>
+    </div>
+  );
+}
+
+function ReviewStatusFilterBar({
+  counts,
+  value,
+  onChange
+}: {
+  counts: Record<ReviewStatusFilterValue, number>;
+  value: ReviewStatusFilterValue;
+  onChange: (nextValue: ReviewStatusFilterValue) => void;
+}) {
+  return (
+    <div className="review-filter-bar" aria-label="review status 筛选">
+      {reviewStatusFilterOptions.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={value === option.value ? "review-filter-chip active" : "review-filter-chip"}
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+        >
+          <span>{option.label}</span>
+          <strong>{counts[option.value]}</strong>
+        </button>
+      ))}
     </div>
   );
 }
@@ -1617,7 +1653,22 @@ function VocabularyView({
   const [draftMeaning, setDraftMeaning] = useState("");
   const [draftSourceSentence, setDraftSourceSentence] = useState("");
   const [draftReviewStatus, setDraftReviewStatus] = useState<VocabularyReviewStatus>("new");
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<ReviewStatusFilterValue>("all");
   const [formNotice, setFormNotice] = useState<string | null>(null);
+
+  const reviewStatusCounts = useMemo<Record<ReviewStatusFilterValue, number>>(() => ({
+    all: items.length,
+    new: items.filter((item) => item.review_status === "new").length,
+    learning: items.filter((item) => item.review_status === "learning").length,
+    familiar: items.filter((item) => item.review_status === "familiar").length
+  }), [items]);
+
+  const filteredItems = useMemo(() => {
+    if (reviewStatusFilter === "all") {
+      return items;
+    }
+    return items.filter((item) => item.review_status === reviewStatusFilter);
+  }, [items, reviewStatusFilter]);
 
   useEffect(() => {
     setDraftMeaning(selectedItem?.meaning ?? "");
@@ -1695,11 +1746,16 @@ function VocabularyView({
             <div className="section-title-row">
               <div>
                 <p className="eyebrow">Items</p>
-                <h2>{items.length} 条词条</h2>
+                <h2>{filteredItems.length} / {items.length} 条词条</h2>
               </div>
             </div>
+            <ReviewStatusFilterBar counts={reviewStatusCounts} value={reviewStatusFilter} onChange={setReviewStatusFilter} />
             <div className="vocabulary-list">
-              {items.map((item) => (
+              {filteredItems.length === 0 ? (
+                <div className="filter-empty-state">
+                  当前筛选下还没有词条。
+                </div>
+              ) : filteredItems.map((item) => (
                 <button
                   key={item.vocab_id}
                   type="button"
@@ -1845,7 +1901,22 @@ function SentencesView({
   const [draftTranslation, setDraftTranslation] = useState("");
   const [draftStructureNote, setDraftStructureNote] = useState("");
   const [draftReviewStatus, setDraftReviewStatus] = useState<SentenceReviewStatus>("new");
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<ReviewStatusFilterValue>("all");
   const [formNotice, setFormNotice] = useState<string | null>(null);
+
+  const reviewStatusCounts = useMemo<Record<ReviewStatusFilterValue, number>>(() => ({
+    all: items.length,
+    new: items.filter((item) => item.review_status === "new").length,
+    learning: items.filter((item) => item.review_status === "learning").length,
+    familiar: items.filter((item) => item.review_status === "familiar").length
+  }), [items]);
+
+  const filteredItems = useMemo(() => {
+    if (reviewStatusFilter === "all") {
+      return items;
+    }
+    return items.filter((item) => item.review_status === reviewStatusFilter);
+  }, [items, reviewStatusFilter]);
 
   useEffect(() => {
     setDraftTranslation(selectedItem?.translation ?? "");
@@ -1923,11 +1994,16 @@ function SentencesView({
             <div className="section-title-row">
               <div>
                 <p className="eyebrow">Items</p>
-                <h2>{items.length} 条句条</h2>
+                <h2>{filteredItems.length} / {items.length} 条句条</h2>
               </div>
             </div>
+            <ReviewStatusFilterBar counts={reviewStatusCounts} value={reviewStatusFilter} onChange={setReviewStatusFilter} />
             <div className="sentences-list">
-              {items.map((item) => (
+              {filteredItems.length === 0 ? (
+                <div className="filter-empty-state">
+                  当前筛选下还没有句条。
+                </div>
+              ) : filteredItems.map((item) => (
                 <button
                   key={item.sentence_id}
                   type="button"

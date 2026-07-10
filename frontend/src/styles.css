@@ -1180,3 +1180,46 @@ select {
 .sentence-status {
   margin-top: 0;
 }
+
+
+.review-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.review-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid #d7ddd4;
+  border-radius: 999px;
+  background: #fffefb;
+  color: #354238;
+}
+
+.review-filter-chip strong {
+  color: #5e6b60;
+  font-size: 12px;
+}
+
+.review-filter-chip.active {
+  border-color: #8fab85;
+  background: #eef5ea;
+  color: #214f2d;
+}
+
+.review-filter-chip.active strong {
+  color: #2f6b3b;
+}
+
+.filter-empty-state {
+  padding: 12px 14px;
+  border: 1px dashed #d3d8d0;
+  border-radius: 8px;
+  color: #677267;
+  background: #fffefb;
+}
