@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.app import schemas
 from backend.app.db import get_db, init_db
-from backend.app.services import annotation_service, practice_attempt_service, reading_pack_service, vocabulary_service
+from backend.app.services import annotation_service, practice_attempt_service, reading_pack_service, sentence_service, vocabulary_service
 
 app = FastAPI(title="local-english-trainer API")
 
@@ -129,3 +129,41 @@ def delete_vocabulary_item(vocab_id: str, db: Session = Depends(get_db)) -> sche
         return vocabulary_service.delete_vocabulary_item(db, vocab_id)
     except vocabulary_service.VocabularyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.post("/api/sentences", response_model=schemas.SentenceItemOut)
+def create_sentence_item(payload: schemas.SentenceItemCreate, db: Session = Depends(get_db)) -> schemas.SentenceItemOut:
+    try:
+        return sentence_service.create_sentence_item(db, payload)
+    except sentence_service.SentenceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.get("/api/sentences", response_model=list[schemas.SentenceItemOut])
+def list_sentence_items(db: Session = Depends(get_db)) -> list[schemas.SentenceItemOut]:
+    return sentence_service.list_sentence_items(db)
+
+
+@app.get("/api/sentences/{sentence_id}", response_model=schemas.SentenceItemOut)
+def get_sentence_item(sentence_id: str, db: Session = Depends(get_db)) -> schemas.SentenceItemOut:
+    try:
+        return sentence_service.get_sentence_item(db, sentence_id)
+    except sentence_service.SentenceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.patch("/api/sentences/{sentence_id}", response_model=schemas.SentenceItemOut)
+def update_sentence_item(sentence_id: str, payload: schemas.SentenceItemUpdate, db: Session = Depends(get_db)) -> schemas.SentenceItemOut:
+    try:
+        return sentence_service.update_sentence_item(db, sentence_id, payload)
+    except sentence_service.SentenceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.delete("/api/sentences/{sentence_id}", response_model=schemas.SentenceDeleteResponse)
+def delete_sentence_item(sentence_id: str, db: Session = Depends(get_db)) -> schemas.SentenceDeleteResponse:
+    try:
+        return sentence_service.delete_sentence_item(db, sentence_id)
+    except sentence_service.SentenceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+

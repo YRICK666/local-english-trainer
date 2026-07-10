@@ -172,3 +172,34 @@ export type VocabularyDeleteResponse = {
   vocab_id: string;
 };
 
+
+export type SentenceReviewStatus = "new" | "learning" | "familiar";
+
+export type SentenceItem = {
+  sentence_id: string;
+  sentence_text: string;
+  translation?: string | null;
+  structure_note?: string | null;
+  source_pack_id?: string | null;
+  source_passage_id?: string | null;
+  source_paragraph_id?: string | null;
+  source_annotation_id?: string | null;
+  review_status: SentenceReviewStatus;
+  created_at?: string | null;
+};
+
+export type SentenceItemUpdate = {
+  sentence_text?: string | null;
+  translation?: string | null;
+  structure_note?: string | null;
+  source_pack_id?: string | null;
+  source_passage_id?: string | null;
+  source_paragraph_id?: string | null;
+  source_annotation_id?: string | null;
+  review_status?: SentenceReviewStatus | null;
+};
+
+export type SentenceDeleteResponse = {
+  deleted: boolean;
+  sentence_id: string;
+};

@@ -740,8 +740,11 @@ select {
   .attempt-metric { justify-items: start; }
   .answer-review { grid-template-columns: 1fr; }
   .vocabulary-row,
-  .vocabulary-actions { display: grid; }
-  .vocabulary-row-meta { justify-items: start; }
+  .vocabulary-actions,
+  .sentence-row,
+  .sentences-actions { display: grid; }
+  .vocabulary-row-meta,
+  .sentence-row-meta { justify-items: start; }
   .article-pane,
   .question-pane { padding: 18px; }
   .passage-switcher {
@@ -887,7 +890,9 @@ select {
   }
 
   .vocabulary-layout,
-  .vocabulary-meta-grid {
+  .vocabulary-meta-grid,
+  .sentences-layout,
+  .sentences-meta-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1058,5 +1063,120 @@ select {
 }
 
 .annotation-status {
+  margin-top: 0;
+}
+
+
+.sentences-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.sentences-list-panel,
+.sentences-detail-panel {
+  padding: 16px;
+  border: 1px solid #dfe3da;
+  border-radius: 8px;
+  background: #fffefb;
+}
+
+.sentences-list,
+.sentences-detail-stack,
+.sentences-edit-form {
+  display: grid;
+  gap: 12px;
+}
+
+.sentence-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #dfe3da;
+  border-radius: 8px;
+  background: #fffefb;
+  color: #30352f;
+  text-align: left;
+}
+
+.sentence-row div:first-child,
+.sentence-row-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.sentence-row small,
+.sentences-meta-card strong {
+  color: #748073;
+}
+
+.sentence-row.active {
+  border-color: #8fab85;
+  background: #eef5ea;
+}
+
+.sentence-row-meta {
+  justify-items: end;
+}
+
+.sentences-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sentences-meta-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #e0e4db;
+  border-radius: 8px;
+  background: #fbfcf8;
+}
+
+.sentences-meta-card span {
+  color: #29352d;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.sentences-field {
+  display: grid;
+  gap: 6px;
+}
+
+.sentences-field span {
+  color: #5f6d61;
+  font-size: 13px;
+}
+
+.sentences-field textarea {
+  min-height: 88px;
+  padding: 10px 12px;
+  border: 1px solid #ced8ca;
+  border-radius: 8px;
+  background: #fffefb;
+  color: #253129;
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.sentences-field textarea:focus {
+  outline: 2px solid rgba(49, 95, 59, 0.16);
+  border-color: #7d9a74;
+}
+
+.sentences-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.sentence-status {
   margin-top: 0;
 }

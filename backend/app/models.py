@@ -167,3 +167,20 @@ class VocabularyItem(Base):
     source_annotation_id = Column(String(120), nullable=True, index=True)
     review_status = Column(String(40), nullable=False, default="new")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SentenceItem(Base):
+    __tablename__ = "sentence_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sentence_id = Column(String(120), nullable=False, unique=True, index=True)
+    sentence_text = Column(Text, nullable=False)
+    translation = Column(Text, nullable=True)
+    structure_note = Column(Text, nullable=True)
+    source_pack_id = Column(String(120), nullable=True, index=True)
+    source_passage_id = Column(String(120), nullable=True, index=True)
+    source_paragraph_id = Column(String(120), nullable=True, index=True)
+    source_annotation_id = Column(String(120), nullable=True, index=True)
+    review_status = Column(String(40), nullable=False, default="new")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

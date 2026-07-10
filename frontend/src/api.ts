@@ -9,6 +9,9 @@ import type {
   ReadingPack,
   ReadingPackImportResponse,
   ReadingPackSummary,
+  SentenceDeleteResponse,
+  SentenceItem,
+  SentenceItemUpdate,
   VocabularyDeleteResponse,
   VocabularyItem,
   VocabularyItemCreate,
@@ -125,6 +128,27 @@ export function updateVocabularyItem(vocabId: string, payload: VocabularyItemUpd
 
 export function deleteVocabularyItem(vocabId: string) {
   return requestJson<VocabularyDeleteResponse>(`/api/vocabulary/${encodeURIComponent(vocabId)}`, {
+    method: "DELETE"
+  });
+}
+
+export function listSentenceItems() {
+  return requestJson<SentenceItem[]>("/api/sentences");
+}
+
+export function getSentenceItem(sentenceId: string) {
+  return requestJson<SentenceItem>(`/api/sentences/${encodeURIComponent(sentenceId)}`);
+}
+
+export function updateSentenceItem(sentenceId: string, payload: SentenceItemUpdate) {
+  return requestJson<SentenceItem>(`/api/sentences/${encodeURIComponent(sentenceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteSentenceItem(sentenceId: string) {
+  return requestJson<SentenceDeleteResponse>(`/api/sentences/${encodeURIComponent(sentenceId)}`, {
     method: "DELETE"
   });
 }

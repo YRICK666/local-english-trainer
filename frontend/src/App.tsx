@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { ApiError, createAnnotation, createVocabularyItem, deleteAnnotation, deleteVocabularyItem, getPracticeAttempt, getReadingPack, getVocabularyItem, importReadingPack, listAnnotations, listPracticeAttempts, listReadingPacks, listVocabularyItems, submitPracticeAttempt, updateVocabularyItem, validateReadingPack } from "./api";
+import { ApiError, createAnnotation, createVocabularyItem, deleteAnnotation, deleteSentenceItem, deleteVocabularyItem, getPracticeAttempt, getReadingPack, getSentenceItem, getVocabularyItem, importReadingPack, listAnnotations, listPracticeAttempts, listReadingPacks, listSentenceItems, listVocabularyItems, submitPracticeAttempt, updateSentenceItem, updateVocabularyItem, validateReadingPack } from "./api";
 import { mockReadingPack } from "./mockData";
-import type { AnnotationCreate, AnnotationType, ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingAnnotation, ReadingPack, ReadingPackImportResponse, ReadingPackSummary, VocabularyItem, VocabularyItemCreate, VocabularyItemUpdate, VocabularyReviewStatus } from "./types";
+import type { AnnotationCreate, AnnotationType, ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingAnnotation, ReadingPack, ReadingPackImportResponse, ReadingPackSummary, SentenceItem, SentenceItemUpdate, SentenceReviewStatus, VocabularyItem, VocabularyItemCreate, VocabularyItemUpdate, VocabularyReviewStatus } from "./types";
 import "./styles.css";
 
 type ViewKey = "dashboard" | "import" | "library" | "workspace" | "attempts" | "vocabulary" | "sentences" | "settings";
@@ -75,6 +75,16 @@ const vocabularyReviewStatusOptions: { value: VocabularyReviewStatus; label: str
 
 function getVocabularyReviewStatusLabel(status: VocabularyReviewStatus) {
   return vocabularyReviewStatusOptions.find((item) => item.value === status)?.label ?? status;
+}
+
+const sentenceReviewStatusOptions: { value: SentenceReviewStatus; label: string }[] = [
+  { value: "new", label: "新句" },
+  { value: "learning", label: "学习中" },
+  { value: "familiar", label: "熟悉" }
+];
+
+function getSentenceReviewStatusLabel(status: SentenceReviewStatus) {
+  return sentenceReviewStatusOptions.find((item) => item.value === status)?.label ?? status;
 }
 
 function normalizeNullableText(value: string) {
@@ -225,6 +235,14 @@ function App() {
   const [isVocabularyDetailLoading, setIsVocabularyDetailLoading] = useState(false);
   const [isVocabularySaving, setIsVocabularySaving] = useState(false);
   const [deletingVocabularyId, setDeletingVocabularyId] = useState<string | null>(null);
+  const [sentenceItems, setSentenceItems] = useState<SentenceItem[]>([]);
+  const [selectedSentenceId, setSelectedSentenceId] = useState<string | null>(null);
+  const [selectedSentenceItem, setSelectedSentenceItem] = useState<SentenceItem | null>(null);
+  const [sentenceError, setSentenceError] = useState<string | null>(null);
+  const [isSentenceLoading, setIsSentenceLoading] = useState(false);
+  const [isSentenceDetailLoading, setIsSentenceDetailLoading] = useState(false);
+  const [isSentenceSaving, setIsSentenceSaving] = useState(false);
+  const [deletingSentenceId, setDeletingSentenceId] = useState<string | null>(null);
 
   const orderedPassages = useMemo(() => sortPassages(pack.passages), [pack.passages]);
   const currentPassage = orderedPassages.find((item) => item.passage_id === currentPassageId) ?? orderedPassages[0];
@@ -248,6 +266,9 @@ function App() {
   const vocabularyUnavailableMessage = "后端未连接，暂时无法读取本地词库。";
   const vocabularySaveUnavailableMessage = "后端未连接，暂时无法保存词条修改。";
   const vocabularyDeleteUnavailableMessage = "后端未连接，暂时无法删除词条。";
+  const sentenceUnavailableMessage = "后端未连接，暂时无法读取本地句库。";
+  const sentenceSaveUnavailableMessage = "后端未连接，暂时无法保存句条修改。";
+  const sentenceDeleteUnavailableMessage = "后端未连接，暂时无法删除句条。";
 
   async function refreshAttempts() {
     try {
@@ -352,6 +373,100 @@ function App() {
     }
   }
 
+
+  async function openSentenceItem(sentenceId: string, fallbackItem?: SentenceItem) {
+    setSelectedSentenceId(sentenceId);
+    setSentenceError(null);
+    if (fallbackItem) {
+      setSelectedSentenceItem(fallbackItem);
+    }
+
+    setIsSentenceDetailLoading(true);
+    try {
+      const detail = await getSentenceItem(sentenceId);
+      setSelectedSentenceItem(detail);
+      setSentenceItems((prev) => prev.map((item) => item.sentence_id === detail.sentence_id ? detail : item));
+    } catch {
+      if (!fallbackItem) {
+        setSelectedSentenceItem(null);
+      }
+      setSentenceError(sentenceUnavailableMessage);
+    } finally {
+      setIsSentenceDetailLoading(false);
+    }
+  }
+
+  async function refreshSentenceItems(preferredSentenceId?: string) {
+    setIsSentenceLoading(true);
+    setSentenceError(null);
+    setDeletingSentenceId(null);
+    try {
+      const items = await listSentenceItems();
+      setSentenceItems(items);
+      if (items.length === 0) {
+        setSelectedSentenceId(null);
+        setSelectedSentenceItem(null);
+        return;
+      }
+
+      const targetId = preferredSentenceId && items.some((item) => item.sentence_id === preferredSentenceId)
+        ? preferredSentenceId
+        : selectedSentenceId && items.some((item) => item.sentence_id === selectedSentenceId)
+          ? selectedSentenceId
+          : items[0].sentence_id;
+      const cachedItem = items.find((item) => item.sentence_id === targetId) ?? items[0];
+      await openSentenceItem(cachedItem.sentence_id, cachedItem);
+    } catch {
+      setSentenceItems([]);
+      setSelectedSentenceId(null);
+      setSelectedSentenceItem(null);
+      setSentenceError(sentenceUnavailableMessage);
+    } finally {
+      setIsSentenceLoading(false);
+    }
+  }
+
+  async function handleUpdateSentenceItem(sentenceId: string, payload: SentenceItemUpdate) {
+    setIsSentenceSaving(true);
+    setSentenceError(null);
+    try {
+      const updated = await updateSentenceItem(sentenceId, payload);
+      setSentenceItems((prev) => prev.map((item) => item.sentence_id === updated.sentence_id ? updated : item));
+      setSelectedSentenceItem(updated);
+      setSelectedSentenceId(updated.sentence_id);
+      return updated;
+    } catch {
+      setSentenceError(sentenceSaveUnavailableMessage);
+      return null;
+    } finally {
+      setIsSentenceSaving(false);
+    }
+  }
+
+  async function handleDeleteSentenceItem(sentenceId: string) {
+    setDeletingSentenceId(sentenceId);
+    setSentenceError(null);
+    try {
+      await deleteSentenceItem(sentenceId);
+      const remainingItems = sentenceItems.filter((item) => item.sentence_id !== sentenceId);
+      setSentenceItems(remainingItems);
+      if (selectedSentenceId === sentenceId) {
+        if (remainingItems.length === 0) {
+          setSelectedSentenceId(null);
+          setSelectedSentenceItem(null);
+        } else {
+          const nextItem = remainingItems[0];
+          await openSentenceItem(nextItem.sentence_id, nextItem);
+        }
+      }
+      return true;
+    } catch {
+      setSentenceError(sentenceDeleteUnavailableMessage);
+      return false;
+    } finally {
+      setDeletingSentenceId(null);
+    }
+  }
 
   async function openVocabularyItem(vocabId: string, fallbackItem?: VocabularyItem) {
     setSelectedVocabularyId(vocabId);
@@ -570,6 +685,9 @@ function App() {
     if (activeView === "vocabulary") {
       void refreshVocabularyItems();
     }
+    if (activeView === "sentences") {
+      void refreshSentenceItems();
+    }
   }, [activeView]);
 
   return (
@@ -682,7 +800,23 @@ function App() {
           />
         )}
         {activeView === "sentences" && (
-          <EmptyState title="Sentences" description="长难句库入口已放入侧边栏，本阶段不做真实入库、标注或高亮切分。" />
+          <SentencesView
+            items={sentenceItems}
+            selectedItem={selectedSentenceItem}
+            selectedSentenceId={selectedSentenceId}
+            sentenceError={sentenceError}
+            isLoading={isSentenceLoading}
+            isDetailLoading={isSentenceDetailLoading}
+            isSaving={isSentenceSaving}
+            deletingSentenceId={deletingSentenceId}
+            onRefresh={() => refreshSentenceItems()}
+            onSelectItem={(sentenceId) => {
+              const cachedItem = sentenceItems.find((item) => item.sentence_id === sentenceId);
+              void openSentenceItem(sentenceId, cachedItem);
+            }}
+            onUpdateItem={handleUpdateSentenceItem}
+            onDeleteItem={handleDeleteSentenceItem}
+          />
         )}
         {activeView === "settings" && (
           <EmptyState title="Settings" description="偏好设置入口先占位，后续可放阅读字号、行宽、主题等本地设置。" />
@@ -1633,6 +1767,235 @@ function VocabularyView({
     </section>
   );
 }
+function SentencesView({
+  items,
+  selectedItem,
+  selectedSentenceId,
+  sentenceError,
+  isLoading,
+  isDetailLoading,
+  isSaving,
+  deletingSentenceId,
+  onRefresh,
+  onSelectItem,
+  onUpdateItem,
+  onDeleteItem
+}: {
+  items: SentenceItem[];
+  selectedItem: SentenceItem | null;
+  selectedSentenceId: string | null;
+  sentenceError: string | null;
+  isLoading: boolean;
+  isDetailLoading: boolean;
+  isSaving: boolean;
+  deletingSentenceId: string | null;
+  onRefresh: () => Promise<void>;
+  onSelectItem: (sentenceId: string) => void;
+  onUpdateItem: (sentenceId: string, payload: SentenceItemUpdate) => Promise<SentenceItem | null>;
+  onDeleteItem: (sentenceId: string) => Promise<boolean>;
+}) {
+  const [draftTranslation, setDraftTranslation] = useState("");
+  const [draftStructureNote, setDraftStructureNote] = useState("");
+  const [draftReviewStatus, setDraftReviewStatus] = useState<SentenceReviewStatus>("new");
+  const [formNotice, setFormNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftTranslation(selectedItem?.translation ?? "");
+    setDraftStructureNote(selectedItem?.structure_note ?? "");
+    setDraftReviewStatus(selectedItem?.review_status ?? "new");
+    setFormNotice(null);
+  }, [selectedItem]);
+
+  async function handleSave() {
+    if (!selectedItem) {
+      return;
+    }
+
+    const payload: SentenceItemUpdate = {};
+    const nextTranslation = normalizeNullableText(draftTranslation);
+    const nextStructureNote = normalizeNullableText(draftStructureNote);
+
+    if (nextTranslation !== (selectedItem.translation ?? null)) {
+      payload.translation = nextTranslation;
+    }
+    if (nextStructureNote !== (selectedItem.structure_note ?? null)) {
+      payload.structure_note = nextStructureNote;
+    }
+    if (draftReviewStatus !== selectedItem.review_status) {
+      payload.review_status = draftReviewStatus;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setFormNotice("当前没有需要保存的修改。");
+      return;
+    }
+
+    const updated = await onUpdateItem(selectedItem.sentence_id, payload);
+    if (updated) {
+      setFormNotice("句条已更新。");
+    }
+  }
+
+  async function handleDelete() {
+    if (!selectedItem) {
+      return;
+    }
+
+    const deleted = await onDeleteItem(selectedItem.sentence_id);
+    if (deleted) {
+      setFormNotice("句条已删除。");
+    }
+  }
+
+  return (
+    <section className="page-stack">
+      <div className="page-header slim">
+        <div>
+          <p className="eyebrow">Sentences</p>
+          <h1>本地句库</h1>
+          <p>查看已入库的长难句，并维护翻译、结构说明和当前熟悉程度。</p>
+        </div>
+        <div className="inline-actions">
+          <button type="button" onClick={() => void onRefresh()}>刷新句库</button>
+        </div>
+      </div>
+
+      {sentenceError && <div className="workspace-error">{sentenceError}</div>}
+
+      {isLoading && items.length === 0 ? (
+        <div className="loading-card">正在读取本地句库……</div>
+      ) : items.length === 0 ? (
+        <div className="empty-state">
+          <h2>还没有句条</h2>
+          <p>还没有句条。后续可以从 Workspace 的长难句标注加入句库。</p>
+        </div>
+      ) : (
+        <div className="sentences-layout">
+          <div className="sentences-list-panel">
+            <div className="section-title-row">
+              <div>
+                <p className="eyebrow">Items</p>
+                <h2>{items.length} 条句条</h2>
+              </div>
+            </div>
+            <div className="sentences-list">
+              {items.map((item) => (
+                <button
+                  key={item.sentence_id}
+                  type="button"
+                  className={selectedSentenceId === item.sentence_id ? "sentence-row active" : "sentence-row"}
+                  onClick={() => onSelectItem(item.sentence_id)}
+                >
+                  <div>
+                    <strong>{item.sentence_text}</strong>
+                    <small>{item.translation?.trim() ? item.translation : "暂未填写翻译"}</small>
+                  </div>
+                  <div className="sentence-row-meta">
+                    <span className={`review-status-pill ${item.review_status}`}>{getSentenceReviewStatusLabel(item.review_status)}</span>
+                    <small>{formatDate(item.created_at ?? undefined)}</small>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="sentences-detail-panel">
+            {!selectedItem ? (
+              <EmptyState title="选择一条句条" description="点击左侧句条后，这里会显示可编辑的翻译、结构说明和复习状态。" />
+            ) : (
+              <div className="sentences-detail-stack">
+                <div className="section-title-row">
+                  <div>
+                    <p className="eyebrow">Detail</p>
+                    <h2>{selectedItem.sentence_text}</h2>
+                    <p className="muted-text">{isDetailLoading ? "正在刷新句条详情……" : "可直接编辑并保存到本地句库。"}</p>
+                  </div>
+                  <span className={`review-status-pill ${selectedItem.review_status}`}>{getSentenceReviewStatusLabel(selectedItem.review_status)}</span>
+                </div>
+
+                <div className="sentences-meta-grid">
+                  <div className="sentences-meta-card">
+                    <strong>source_annotation_id</strong>
+                    <span>{selectedItem.source_annotation_id ?? "-"}</span>
+                  </div>
+                  <div className="sentences-meta-card">
+                    <strong>created_at</strong>
+                    <span>{formatDate(selectedItem.created_at ?? undefined)}</span>
+                  </div>
+                  <div className="sentences-meta-card">
+                    <strong>sentence_text</strong>
+                    <span>{selectedItem.sentence_text}</span>
+                  </div>
+                  <div className="sentences-meta-card">
+                    <strong>review_status</strong>
+                    <span>{selectedItem.review_status}</span>
+                  </div>
+                </div>
+
+                <div className="sentences-edit-form">
+                  <label className="sentences-field">
+                    <span>translation</span>
+                    <textarea
+                      value={draftTranslation}
+                      onChange={(event) => setDraftTranslation(event.target.value)}
+                      placeholder="补充这个句条的中文翻译"
+                      disabled={isSaving || deletingSentenceId === selectedItem.sentence_id}
+                    />
+                  </label>
+
+                  <label className="sentences-field">
+                    <span>structure_note</span>
+                    <textarea
+                      value={draftStructureNote}
+                      onChange={(event) => setDraftStructureNote(event.target.value)}
+                      placeholder="补充这个句条的结构说明"
+                      disabled={isSaving || deletingSentenceId === selectedItem.sentence_id}
+                    />
+                  </label>
+
+                  <label className="sentences-field">
+                    <span>review_status</span>
+                    <select
+                      value={draftReviewStatus}
+                      onChange={(event) => setDraftReviewStatus(event.target.value as SentenceReviewStatus)}
+                      disabled={isSaving || deletingSentenceId === selectedItem.sentence_id}
+                    >
+                      {sentenceReviewStatusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.value} · {option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {formNotice && <div className="workspace-status sentence-status">{formNotice}</div>}
+
+                  <div className="sentences-actions">
+                    <button
+                      className="primary-action"
+                      type="button"
+                      onClick={() => void handleSave()}
+                      disabled={isSaving || deletingSentenceId === selectedItem.sentence_id}
+                    >
+                      {isSaving ? "保存中……" : "保存修改"}
+                    </button>
+                    <button
+                      className="danger-action"
+                      type="button"
+                      onClick={() => void handleDelete()}
+                      disabled={deletingSentenceId === selectedItem.sentence_id || isSaving}
+                    >
+                      {deletingSentenceId === selectedItem.sentence_id ? "删除中……" : "删除句条"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AttemptResult({ result }: { result: PracticeAttemptDetail }) {
   const status = getAttemptStatus(result.accuracy);
 

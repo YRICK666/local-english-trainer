@@ -177,3 +177,44 @@ class VocabularyItemOut(BaseModel):
 class VocabularyDeleteResponse(BaseModel):
     deleted: bool
     vocab_id: str
+
+
+class SentenceItemCreate(BaseModel):
+    sentence_text: str
+    translation: str | None = None
+    structure_note: str | None = None
+    source_pack_id: str | None = None
+    source_passage_id: str | None = None
+    source_paragraph_id: str | None = None
+    source_annotation_id: str | None = None
+    review_status: str | None = None
+
+
+class SentenceItemUpdate(BaseModel):
+    sentence_text: str | None = None
+    translation: str | None = None
+    structure_note: str | None = None
+    source_pack_id: str | None = None
+    source_passage_id: str | None = None
+    source_paragraph_id: str | None = None
+    source_annotation_id: str | None = None
+    review_status: str | None = None
+
+
+class SentenceItemOut(BaseModel):
+    sentence_id: str
+    sentence_text: str
+    translation: str | None = None
+    structure_note: str | None = None
+    source_pack_id: str | None = None
+    source_passage_id: str | None = None
+    source_paragraph_id: str | None = None
+    source_annotation_id: str | None = None
+    review_status: str
+    created_at: datetime | None = None
+
+
+class SentenceDeleteResponse(BaseModel):
+    deleted: bool
+    sentence_id: str
+
