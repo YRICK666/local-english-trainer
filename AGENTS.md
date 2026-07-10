@@ -118,6 +118,19 @@
 - 规划和执行提示词模板参考 `docs/TASK_PROMPT_TEMPLATES.md`。
 - 代码验收和只读 review 参考 `docs/CODE_REVIEW_GUIDE.md`。
 - 本文件只保留长期项目规则；单次任务的允许文件、禁止文件、接口字段和验收标准应写在任务 prompt 中。
+## Inline Annotation Long-term Invariants
+
+原文内联标注后续如需实施，必须长期保持以下约束：
+
+1. 标注权威定位数据由 `paragraph_id`、`start_offset`、`end_offset`、`selected_text` 共同表示。
+2. offset 统一采用 `[start_offset, end_offset)`，相对于 `Paragraph.text` 原始纯文本，单位为 Unicode code point，不相对于渲染后的 DOM；`selected_text` 必须严格等于对应 paragraph slice。
+3. 旧 annotation 和旧数据库必须保持兼容：新 offset 字段允许为空，不删除或批量改写旧 annotation，SQLite 升级必须 additive、幂等、可测试，不提交或自动清理真实数据库。
+4. `vocabulary` 和 `difficult_sentence` annotation 的自动入库必须保持原子性：annotation 与对应库项目一起成功或一起失败；普通 annotation 不自动入库。
+5. 删除 annotation 时，不删除已积累的 vocabulary item 或 sentence item，而是清空其 `source_annotation_id`，保留 pack、passage、paragraph 来源；删除库项目也不得反向删除 annotation。
+6. 标注核心数据和切片算法不得依赖单一平台交互：Web/桌面端可以用右键菜单，未来手机端可以用长按或触摸工具栏；`Selection` / `contextmenu` 只负责产生标准 offset 数据，高亮和业务规则不得绑定浏览器右键本身。
+7. 未经用户后续明确批准，不使用 `contenteditable`、富文本编辑器、第三方高亮库或全局状态库实现原文内联标注。
+8. 详细设计统一参考 `docs/INLINE_ANNOTATION_DESIGN.md`。
+
 ## 验收 / review 阶段的 Git 使用规则
 
 在代码验收、review、检查模型是否越界修改文件时，默认允许使用只读 Git 命令。
