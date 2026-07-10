@@ -121,6 +121,83 @@ def test_can_create_with_valid_source_annotation_id(client: TestClient, imported
     assert response.json()["source_annotation_id"] == annotation["annotation_id"]
 
 
+def test_rejects_duplicate_source_annotation_id_on_create(client: TestClient, imported_pack: dict) -> None:
+    annotation = create_annotation(client)
+    first = client.post("/api/sentences", json=build_sentence_payload(sentence_text="Sentence one.", source_annotation_id=annotation["annotation_id"]))
+
+    assert first.status_code == 200
+
+    second = client.post("/api/sentences", json=build_sentence_payload(sentence_text="Sentence two.", source_annotation_id=annotation["annotation_id"]))
+
+    assert second.status_code == 409
+    assert "already linked to sentence item" in second.json()["detail"]
+
+
+def test_duplicate_source_annotation_id_conflict_does_not_create_extra_sentence_item(client: TestClient, imported_pack: dict) -> None:
+    annotation = create_annotation(client)
+    create_sentence(client, sentence_text="Sentence one.", source_annotation_id=annotation["annotation_id"])
+
+    duplicate = client.post("/api/sentences", json=build_sentence_payload(sentence_text="Sentence two.", source_annotation_id=annotation["annotation_id"]))
+
+    assert duplicate.status_code == 409
+
+    listing = client.get("/api/sentences")
+
+    assert listing.status_code == 200
+    body = listing.json()
+    assert len(body) == 1
+    assert body[0]["source_annotation_id"] == annotation["annotation_id"]
+
+
+def test_patch_rejects_source_annotation_id_used_by_another_sentence_item(client: TestClient, imported_pack: dict) -> None:
+    annotation_one = create_annotation(client)
+    annotation_two = client.post("/api/annotations", json={
+        "pack_id": "attempt-reading-pack",
+        "passage_id": "passage-attempt",
+        "paragraph_id": "para-attempt-1",
+        "question_id": "q-attempt-1",
+        "annotation_type": "difficult_sentence",
+        "selected_text": "A second sentence for testing.",
+        "note": "second annotation source"
+    })
+    assert annotation_two.status_code == 200
+
+    first = create_sentence(client, sentence_text="Sentence one.", source_annotation_id=annotation_one["annotation_id"])
+    second = create_sentence(client, sentence_text="Sentence two.", source_annotation_id=annotation_two.json()["annotation_id"])
+
+    response = client.patch(
+        f"/api/sentences/{second['sentence_id']}",
+        json={"source_annotation_id": annotation_one["annotation_id"]}
+    )
+
+    assert response.status_code == 409
+    assert "already linked to sentence item" in response.json()["detail"]
+
+
+def test_patch_keeps_same_source_annotation_id_without_conflict(client: TestClient, imported_pack: dict) -> None:
+    annotation = create_annotation(client)
+    created = create_sentence(client, source_annotation_id=annotation["annotation_id"])
+
+    response = client.patch(
+        f"/api/sentences/{created['sentence_id']}",
+        json={"source_annotation_id": annotation["annotation_id"], "translation": "updated translation"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source_annotation_id"] == annotation["annotation_id"]
+    assert response.json()["translation"] == "updated translation"
+
+
+def test_allows_multiple_sentence_items_without_source_annotation_id(client: TestClient) -> None:
+    first = client.post("/api/sentences", json=build_sentence_payload(sentence_text="Sentence one.", source_annotation_id=None))
+    second = client.post("/api/sentences", json=build_sentence_payload(sentence_text="Sentence two.", source_annotation_id=None))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["source_annotation_id"] is None
+    assert second.json()["source_annotation_id"] is None
+
+
 def test_lists_sentence_items(client: TestClient) -> None:
     first = create_sentence(client, sentence_text="Sentence one.")
     second = create_sentence(client, sentence_text="Sentence two.", review_status="new")

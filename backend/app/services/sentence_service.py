@@ -21,6 +21,7 @@ def create_sentence_item(db: Session, payload: schemas.SentenceItemCreate) -> sc
     review_status = _normalize_review_status(payload.review_status)
     source_annotation_id = _normalize_optional_text(payload.source_annotation_id)
     _ensure_annotation_exists(db, source_annotation_id)
+    _ensure_source_annotation_available(db, source_annotation_id)
 
     item = models.SentenceItem(
         sentence_id=f"sentence-{uuid4().hex}",
@@ -72,6 +73,7 @@ def update_sentence_item(db: Session, sentence_id: str, payload: schemas.Sentenc
     if "source_annotation_id" in data:
         source_annotation_id = _normalize_optional_text(data["source_annotation_id"])
         _ensure_annotation_exists(db, source_annotation_id)
+        _ensure_source_annotation_available(db, source_annotation_id, exclude_sentence_id=item.sentence_id)
         item.source_annotation_id = source_annotation_id
     if "review_status" in data:
         item.review_status = _normalize_review_status(data["review_status"])
@@ -118,6 +120,19 @@ def _ensure_annotation_exists(db: Session, annotation_id: str | None) -> None:
     annotation = db.query(models.ReadingAnnotation).filter(models.ReadingAnnotation.annotation_id == annotation_id).one_or_none()
     if annotation is None:
         raise SentenceError(400, f"source_annotation_id not found: {annotation_id}")
+
+
+def _ensure_source_annotation_available(db: Session, annotation_id: str | None, exclude_sentence_id: str | None = None) -> None:
+    if annotation_id is None:
+        return
+
+    query = db.query(models.SentenceItem).filter(models.SentenceItem.source_annotation_id == annotation_id)
+    if exclude_sentence_id is not None:
+        query = query.filter(models.SentenceItem.sentence_id != exclude_sentence_id)
+
+    conflict = query.one_or_none()
+    if conflict is not None:
+        raise SentenceError(409, f"source_annotation_id already linked to sentence item: {annotation_id}")
 
 
 def _to_sentence_out(item: models.SentenceItem) -> schemas.SentenceItemOut:

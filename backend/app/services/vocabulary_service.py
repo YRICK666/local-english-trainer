@@ -21,6 +21,7 @@ def create_vocabulary_item(db: Session, payload: schemas.VocabularyItemCreate) -
     review_status = _normalize_review_status(payload.review_status)
     source_annotation_id = _normalize_optional_text(payload.source_annotation_id)
     _ensure_annotation_exists(db, source_annotation_id)
+    _ensure_source_annotation_available(db, source_annotation_id)
 
     item = models.VocabularyItem(
         vocab_id=f"vocab-{uuid4().hex}",
@@ -72,6 +73,7 @@ def update_vocabulary_item(db: Session, vocab_id: str, payload: schemas.Vocabula
     if "source_annotation_id" in data:
         source_annotation_id = _normalize_optional_text(data["source_annotation_id"])
         _ensure_annotation_exists(db, source_annotation_id)
+        _ensure_source_annotation_available(db, source_annotation_id, exclude_vocab_id=item.vocab_id)
         item.source_annotation_id = source_annotation_id
     if "review_status" in data:
         item.review_status = _normalize_review_status(data["review_status"])
@@ -118,6 +120,19 @@ def _ensure_annotation_exists(db: Session, annotation_id: str | None) -> None:
     annotation = db.query(models.ReadingAnnotation).filter(models.ReadingAnnotation.annotation_id == annotation_id).one_or_none()
     if annotation is None:
         raise VocabularyError(400, f"source_annotation_id not found: {annotation_id}")
+
+
+def _ensure_source_annotation_available(db: Session, annotation_id: str | None, exclude_vocab_id: str | None = None) -> None:
+    if annotation_id is None:
+        return
+
+    query = db.query(models.VocabularyItem).filter(models.VocabularyItem.source_annotation_id == annotation_id)
+    if exclude_vocab_id is not None:
+        query = query.filter(models.VocabularyItem.vocab_id != exclude_vocab_id)
+
+    conflict = query.one_or_none()
+    if conflict is not None:
+        raise VocabularyError(409, f"source_annotation_id already linked to vocabulary item: {annotation_id}")
 
 
 def _to_vocabulary_out(item: models.VocabularyItem) -> schemas.VocabularyItemOut:
