@@ -11,6 +11,7 @@ import type {
   ReadingPackSummary,
   SentenceDeleteResponse,
   SentenceItem,
+  SentenceItemCreate,
   SentenceItemUpdate,
   VocabularyDeleteResponse,
   VocabularyItem,
@@ -138,6 +139,13 @@ export function listSentenceItems() {
 
 export function getSentenceItem(sentenceId: string) {
   return requestJson<SentenceItem>(`/api/sentences/${encodeURIComponent(sentenceId)}`);
+}
+
+export function createSentenceItem(payload: SentenceItemCreate) {
+  return requestJson<SentenceItem>("/api/sentences", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function updateSentenceItem(sentenceId: string, payload: SentenceItemUpdate) {

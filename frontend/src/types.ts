@@ -175,6 +175,17 @@ export type VocabularyDeleteResponse = {
 
 export type SentenceReviewStatus = "new" | "learning" | "familiar";
 
+export type SentenceItemCreate = {
+  sentence_text: string;
+  translation?: string | null;
+  structure_note?: string | null;
+  source_pack_id?: string | null;
+  source_passage_id?: string | null;
+  source_paragraph_id?: string | null;
+  source_annotation_id?: string | null;
+  review_status?: SentenceReviewStatus | null;
+};
+
 export type SentenceItem = {
   sentence_id: string;
   sentence_text: string;

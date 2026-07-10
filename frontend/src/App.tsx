@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { ApiError, createAnnotation, createVocabularyItem, deleteAnnotation, deleteSentenceItem, deleteVocabularyItem, getPracticeAttempt, getReadingPack, getSentenceItem, getVocabularyItem, importReadingPack, listAnnotations, listPracticeAttempts, listReadingPacks, listSentenceItems, listVocabularyItems, submitPracticeAttempt, updateSentenceItem, updateVocabularyItem, validateReadingPack } from "./api";
+import { ApiError, createAnnotation, createSentenceItem, createVocabularyItem, deleteAnnotation, deleteSentenceItem, deleteVocabularyItem, getPracticeAttempt, getReadingPack, getSentenceItem, getVocabularyItem, importReadingPack, listAnnotations, listPracticeAttempts, listReadingPacks, listSentenceItems, listVocabularyItems, submitPracticeAttempt, updateSentenceItem, updateVocabularyItem, validateReadingPack } from "./api";
 import { mockReadingPack } from "./mockData";
-import type { AnnotationCreate, AnnotationType, ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingAnnotation, ReadingPack, ReadingPackImportResponse, ReadingPackSummary, SentenceItem, SentenceItemUpdate, SentenceReviewStatus, VocabularyItem, VocabularyItemCreate, VocabularyItemUpdate, VocabularyReviewStatus } from "./types";
+import type { AnnotationCreate, AnnotationType, ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingAnnotation, ReadingPack, ReadingPackImportResponse, ReadingPackSummary, SentenceItem, SentenceItemCreate, SentenceItemUpdate, SentenceReviewStatus, VocabularyItem, VocabularyItemCreate, VocabularyItemUpdate, VocabularyReviewStatus } from "./types";
 import "./styles.css";
 
 type ViewKey = "dashboard" | "import" | "library" | "workspace" | "attempts" | "vocabulary" | "sentences" | "settings";
@@ -226,6 +226,7 @@ function App() {
   const [isAnnotationSaving, setIsAnnotationSaving] = useState(false);
   const [deletingAnnotationId, setDeletingAnnotationId] = useState<string | null>(null);
   const [addingVocabularyAnnotationId, setAddingVocabularyAnnotationId] = useState<string | null>(null);
+  const [addingSentenceAnnotationId, setAddingSentenceAnnotationId] = useState<string | null>(null);
   const [annotationNotice, setAnnotationNotice] = useState<string | null>(null);
   const [vocabularyItems, setVocabularyItems] = useState<VocabularyItem[]>([]);
   const [selectedVocabularyId, setSelectedVocabularyId] = useState<string | null>(null);
@@ -263,6 +264,7 @@ function App() {
   const annotationUnavailableMessage = "后端未连接，标注暂时无法保存；阅读和作答仍可继续。";
   const fallbackAnnotationMessage = "示例数据下不能保存标注，请先导入材料并启动后端。";
   const addVocabularyUnavailableMessage = "后端未连接，暂时无法把这条生词标注加入词库。";
+  const addSentenceUnavailableMessage = "后端未连接，暂时无法把这条长难句标注加入句库。";
   const vocabularyUnavailableMessage = "后端未连接，暂时无法读取本地词库。";
   const vocabularySaveUnavailableMessage = "后端未连接，暂时无法保存词条修改。";
   const vocabularyDeleteUnavailableMessage = "后端未连接，暂时无法删除词条。";
@@ -373,6 +375,36 @@ function App() {
     }
   }
 
+  async function handleAddAnnotationToSentence(annotation: ReadingAnnotation) {
+    if (isUsingFallback) {
+      setAnnotationNotice(null);
+      setAnnotationError(fallbackAnnotationMessage);
+      return false;
+    }
+
+    setAddingSentenceAnnotationId(annotation.annotation_id);
+    setAnnotationError(null);
+    setAnnotationNotice(null);
+    try {
+      const payload: SentenceItemCreate = {
+        sentence_text: annotation.selected_text,
+        source_annotation_id: annotation.annotation_id,
+        source_pack_id: annotation.pack_id,
+        source_passage_id: annotation.passage_id,
+        source_paragraph_id: annotation.paragraph_id,
+        review_status: "new"
+      };
+      const created = await createSentenceItem(payload);
+      setAnnotationNotice(`已加入句库：${created.sentence_text}`);
+      return true;
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : addSentenceUnavailableMessage;
+      setAnnotationError(`加入句库失败：${message}`);
+      return false;
+    } finally {
+      setAddingSentenceAnnotationId(null);
+    }
+  }
 
   async function openSentenceItem(sentenceId: string, fallbackItem?: SentenceItem) {
     setSelectedSentenceId(sentenceId);
@@ -761,6 +793,7 @@ function App() {
             isAnnotationSaving={isAnnotationSaving}
             deletingAnnotationId={deletingAnnotationId}
             addingVocabularyAnnotationId={addingVocabularyAnnotationId}
+            addingSentenceAnnotationId={addingSentenceAnnotationId}
             annotationNotice={annotationNotice}
             result={result}
             isPackLoading={isPackLoading}
@@ -773,6 +806,7 @@ function App() {
             onCreateAnnotation={handleCreateAnnotation}
             onDeleteAnnotation={handleDeleteAnnotation}
             onAddAnnotationToVocabulary={handleAddAnnotationToVocabulary}
+            onAddAnnotationToSentence={handleAddAnnotationToSentence}
             onSubmitAttempt={handleSubmitAttempt}
             onOpenAttempts={() => setActiveView("attempts")}
           />
@@ -1201,6 +1235,7 @@ function WorkspaceView({
   isAnnotationSaving,
   deletingAnnotationId,
   addingVocabularyAnnotationId,
+  addingSentenceAnnotationId,
   annotationNotice,
   result,
   isPackLoading,
@@ -1213,6 +1248,7 @@ function WorkspaceView({
   onCreateAnnotation,
   onDeleteAnnotation,
   onAddAnnotationToVocabulary,
+  onAddAnnotationToSentence,
   onSubmitAttempt,
   onOpenAttempts
 }: {
@@ -1232,6 +1268,7 @@ function WorkspaceView({
   isAnnotationSaving: boolean;
   deletingAnnotationId: string | null;
   addingVocabularyAnnotationId: string | null;
+  addingSentenceAnnotationId: string | null;
   annotationNotice: string | null;
   result: PracticeAttemptDetail | null;
   isPackLoading: boolean;
@@ -1244,6 +1281,7 @@ function WorkspaceView({
   onCreateAnnotation: (payload: AnnotationCreate) => Promise<boolean>;
   onDeleteAnnotation: (annotationId: string) => Promise<void>;
   onAddAnnotationToVocabulary: (annotation: ReadingAnnotation) => Promise<boolean>;
+  onAddAnnotationToSentence: (annotation: ReadingAnnotation) => Promise<boolean>;
   onSubmitAttempt: () => void;
   onOpenAttempts: () => void;
 }) {
@@ -1514,6 +1552,16 @@ function WorkspaceView({
                         onClick={() => void onAddAnnotationToVocabulary(annotation)}
                       >
                         {addingVocabularyAnnotationId === annotation.annotation_id ? "加入中……" : "加入词库"}
+                      </button>
+                    )}
+                    {annotation.annotation_type === "difficult_sentence" && (
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        disabled={addingSentenceAnnotationId === annotation.annotation_id}
+                        onClick={() => void onAddAnnotationToSentence(annotation)}
+                      >
+                        {addingSentenceAnnotationId === annotation.annotation_id ? "加入中……" : "加入句库"}
                       </button>
                     )}
                     <button
