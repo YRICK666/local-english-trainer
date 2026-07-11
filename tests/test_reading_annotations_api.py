@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import db as app_db
+from backend.app import models
 from backend.app.main import app
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "reading_pack_minimal.json"
@@ -43,7 +44,7 @@ def import_pack(client: TestClient, payload: dict) -> dict:
     return response.json()["pack"]
 
 
-def build_annotation_payload(annotation_type: str, **overrides: str | None) -> dict:
+def build_annotation_payload(annotation_type: str, **overrides) -> dict:
     payload = {
         "pack_id": "attempt-reading-pack",
         "passage_id": "passage-attempt",
@@ -55,6 +56,32 @@ def build_annotation_payload(annotation_type: str, **overrides: str | None) -> d
     }
     payload.update(overrides)
     return payload
+
+
+def import_custom_pack(
+    client: TestClient,
+    *,
+    pack_id: str,
+    passage_id: str,
+    paragraph_1_id: str,
+    paragraph_1_text: str,
+    paragraph_2_id: str = "para-custom-2",
+    paragraph_2_text: str = "Backup paragraph.",
+) -> dict:
+    payload = copy.deepcopy(load_fixture_payload())
+    payload["pack_id"] = pack_id
+    payload["title"] = f"Pack {pack_id}"
+    payload["passages"][0]["passage_id"] = passage_id
+    payload["passages"][0]["content"] = f"{paragraph_1_text} {paragraph_2_text}"
+    payload["passages"][0]["paragraphs"][0]["paragraph_id"] = paragraph_1_id
+    payload["passages"][0]["paragraphs"][0]["text"] = paragraph_1_text
+    payload["passages"][0]["paragraphs"][1]["paragraph_id"] = paragraph_2_id
+    payload["passages"][0]["paragraphs"][1]["text"] = paragraph_2_text
+    payload["questions"][0]["passage_id"] = passage_id
+    payload["questions"][1]["passage_id"] = passage_id
+    response = client.post("/api/import/reading-pack", json=payload)
+    assert response.status_code == 200
+    return response.json()["pack"]
 
 
 @pytest.mark.parametrize("annotation_type", [
@@ -72,6 +99,21 @@ def test_creates_supported_annotation_types(client: TestClient, imported_pack: d
     assert body["annotation_type"] == annotation_type
     assert body["pack_id"] == "attempt-reading-pack"
     assert body["question_id"] == "q-attempt-1"
+    assert body["start_offset"] is None
+    assert body["end_offset"] is None
+
+
+def test_creates_annotation_with_valid_offsets(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "answer_evidence",
+        selected_text="near the window",
+        start_offset=24,
+        end_offset=39,
+    ))
+
+    assert response.status_code == 200
+    assert response.json()["start_offset"] == 24
+    assert response.json()["end_offset"] == 39
 
 
 def test_rejects_invalid_annotation_type(client: TestClient, imported_pack: dict) -> None:
@@ -86,6 +128,50 @@ def test_rejects_blank_selected_text(client: TestClient, imported_pack: dict) ->
 
     assert response.status_code == 400
     assert response.json()["detail"] == "selected_text must not be empty"
+
+
+def test_legacy_request_without_offsets_still_succeeds(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload("vocabulary", question_id=None))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["start_offset"] is None
+    assert body["end_offset"] is None
+
+
+def test_list_returns_null_offsets_for_legacy_annotations(client: TestClient, imported_pack: dict) -> None:
+    session = app_db.SessionLocal()
+    try:
+        pack = session.query(models.ReadingPack).filter(models.ReadingPack.pack_id == "attempt-reading-pack").one()
+        passage = session.query(models.Passage).filter(models.Passage.pack_db_id == pack.id).one()
+        paragraph = session.query(models.Paragraph).filter(models.Paragraph.passage_db_id == passage.id).first()
+        annotation = models.ReadingAnnotation(
+            annotation_id="annotation-legacy-test",
+            pack_db_id=pack.id,
+            pack_id=pack.pack_id,
+            passage_db_id=passage.id,
+            passage_id=passage.passage_id,
+            paragraph_db_id=paragraph.id,
+            paragraph_id=paragraph.paragraph_id,
+            question_db_id=None,
+            question_id=None,
+            annotation_type="vocabulary",
+            selected_text="small desk",
+            note=None,
+            start_offset=None,
+            end_offset=None,
+        )
+        session.add(annotation)
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.get("/api/annotations", params={"pack_id": "attempt-reading-pack"})
+    assert response.status_code == 200
+    body = response.json()
+    legacy = next(item for item in body if item["annotation_id"] == "annotation-legacy-test")
+    assert legacy["start_offset"] is None
+    assert legacy["end_offset"] is None
 
 
 def test_rejects_missing_pack(client: TestClient, imported_pack: dict) -> None:
@@ -114,6 +200,214 @@ def test_rejects_question_not_in_pack(client: TestClient, imported_pack: dict) -
 
     assert response.status_code == 400
     assert "question_id does not belong" in response.json()["detail"]
+
+
+def test_rejects_only_start_offset(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload("vocabulary", start_offset=24))
+
+    assert response.status_code == 400
+    assert "must both be provided or both be null" in response.json()["detail"]
+
+
+def test_rejects_only_end_offset(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload("vocabulary", end_offset=39))
+
+    assert response.status_code == 400
+    assert "must both be provided or both be null" in response.json()["detail"]
+
+
+def test_rejects_negative_start_offset(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=-1, end_offset=39
+    ))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "start_offset must be greater than or equal to 0"
+
+
+def test_rejects_negative_end_offset(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=24, end_offset=-1
+    ))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "end_offset must be greater than or equal to 0"
+
+
+def test_rejects_equal_offsets(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="n", start_offset=24, end_offset=24
+    ))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "start_offset must be less than end_offset"
+
+
+def test_rejects_start_offset_greater_than_end_offset(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="n", start_offset=30, end_offset=24
+    ))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "start_offset must be less than end_offset"
+
+
+def test_rejects_end_offset_out_of_bounds(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=24, end_offset=99
+    ))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "end_offset exceeds paragraph text length"
+
+
+def test_rejects_selected_text_that_does_not_match_slice(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="Near the window", start_offset=24, end_offset=39
+    ))
+
+    assert response.status_code == 400
+    assert "must exactly match" in response.json()["detail"]
+
+
+def test_rejects_whitespace_only_slice(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text=" ", start_offset=23, end_offset=24
+    ))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "selected_text must not be only whitespace"
+
+
+def test_rejects_paragraph_that_belongs_to_another_pack(client: TestClient, imported_pack: dict) -> None:
+    import_custom_pack(
+        client,
+        pack_id="second-pack",
+        passage_id="passage-second",
+        paragraph_1_id="para-second-1",
+        paragraph_1_text="This is a second pack paragraph.",
+    )
+
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "answer_evidence",
+        paragraph_id="para-second-1",
+    ))
+
+    assert response.status_code == 400
+    assert "paragraph_id does not belong to passage" in response.json()["detail"]
+
+
+def test_rejects_duplicate_annotation_range_for_same_type(client: TestClient, imported_pack: dict) -> None:
+    first = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=24, end_offset=39
+    ))
+    assert first.status_code == 200
+
+    second = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=24, end_offset=39
+    ))
+
+    assert second.status_code == 409
+    assert "annotation range already exists" in second.json()["detail"]
+
+
+def test_allows_same_range_for_different_annotation_types(client: TestClient, imported_pack: dict) -> None:
+    first = client.post("/api/annotations", json=build_annotation_payload(
+        "answer_evidence", selected_text="near the window", start_offset=24, end_offset=39
+    ))
+    second = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=24, end_offset=39
+    ))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+
+def test_allows_partially_overlapping_ranges(client: TestClient, imported_pack: dict) -> None:
+    first = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="small desk", start_offset=13, end_offset=23
+    ))
+    second = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="desk near", start_offset=19, end_offset=28
+    ))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+
+def test_allows_contained_ranges(client: TestClient, imported_pack: dict) -> None:
+    first = client.post("/api/annotations", json=build_annotation_payload(
+        "difficult_sentence", selected_text="small desk near the window", start_offset=13, end_offset=39
+    ))
+    second = client.post("/api/annotations", json=build_annotation_payload(
+        "difficult_sentence", selected_text="near the window", start_offset=24, end_offset=39
+    ))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+
+def test_handles_smart_quotes_and_em_dash_with_code_point_offsets(client: TestClient, imported_pack: dict) -> None:
+    paragraph_text = 'He said “go”—then left.'
+    selected_text = '“go”—then'
+    import_custom_pack(
+        client,
+        pack_id="unicode-pack",
+        passage_id="passage-unicode",
+        paragraph_1_id="para-unicode-1",
+        paragraph_1_text=paragraph_text,
+    )
+    start_offset = paragraph_text.index(selected_text)
+    end_offset = start_offset + len(selected_text)
+
+    response = client.post("/api/annotations", json={
+        "pack_id": "unicode-pack",
+        "passage_id": "passage-unicode",
+        "paragraph_id": "para-unicode-1",
+        "question_id": "q-attempt-1",
+        "annotation_type": "difficult_sentence",
+        "selected_text": selected_text,
+        "start_offset": start_offset,
+        "end_offset": end_offset,
+        "note": None,
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["selected_text"] == selected_text
+    assert body["start_offset"] == start_offset
+    assert body["end_offset"] == end_offset
+
+
+def test_handles_non_bmp_characters_with_code_point_offsets(client: TestClient, imported_pack: dict) -> None:
+    paragraph_text = "A 😀 smile appears."
+    import_custom_pack(
+        client,
+        pack_id="emoji-pack",
+        passage_id="passage-emoji",
+        paragraph_1_id="para-emoji-1",
+        paragraph_1_text=paragraph_text,
+    )
+    start_offset = paragraph_text.index("😀")
+    end_offset = start_offset + 1
+
+    response = client.post("/api/annotations", json={
+        "pack_id": "emoji-pack",
+        "passage_id": "passage-emoji",
+        "paragraph_id": "para-emoji-1",
+        "question_id": "q-attempt-1",
+        "annotation_type": "vocabulary",
+        "selected_text": "😀",
+        "start_offset": start_offset,
+        "end_offset": end_offset,
+        "note": "emoji",
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["selected_text"] == "😀"
+    assert body["start_offset"] == start_offset
+    assert body["end_offset"] == end_offset
 
 
 def test_lists_annotations_for_current_pack_only(client: TestClient, imported_pack: dict) -> None:

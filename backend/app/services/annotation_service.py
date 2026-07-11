@@ -27,12 +27,16 @@ def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas
     paragraph_id = payload.paragraph_id.strip()
     question_id = payload.question_id.strip() if payload.question_id else None
     annotation_type = payload.annotation_type.strip()
-    selected_text = payload.selected_text.strip()
+    selected_text = payload.selected_text
+    start_offset = payload.start_offset
+    end_offset = payload.end_offset
     note = payload.note.strip() if payload.note is not None else None
 
     if annotation_type not in VALID_ANNOTATION_TYPES:
         raise AnnotationError(400, f"annotation_type is invalid: {annotation_type}")
-    if not selected_text:
+    if (start_offset is None) != (end_offset is None):
+        raise AnnotationError(400, "start_offset and end_offset must both be provided or both be null")
+    if start_offset is None and end_offset is None and not selected_text.strip():
         raise AnnotationError(400, "selected_text must not be empty")
 
     pack = db.query(models.ReadingPack).filter(models.ReadingPack.pack_id == pack_id).one_or_none()
@@ -62,6 +66,17 @@ def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas
         if question is None:
             raise AnnotationError(400, f"question_id does not belong to pack {pack_id}: {question_id}")
 
+    if start_offset is not None and end_offset is not None:
+        _validate_offsets(paragraph.text, selected_text, start_offset, end_offset)
+        conflict = db.query(models.ReadingAnnotation).filter(
+            models.ReadingAnnotation.paragraph_db_id == paragraph.id,
+            models.ReadingAnnotation.annotation_type == annotation_type,
+            models.ReadingAnnotation.start_offset == start_offset,
+            models.ReadingAnnotation.end_offset == end_offset,
+        ).one_or_none()
+        if conflict is not None:
+            raise AnnotationError(409, "annotation range already exists for this annotation_type in the same paragraph")
+
     annotation = models.ReadingAnnotation(
         annotation_id=f"annotation-{uuid4().hex}",
         pack_db_id=pack.id,
@@ -74,6 +89,8 @@ def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas
         question_id=question.question_id if question is not None else None,
         annotation_type=annotation_type,
         selected_text=selected_text,
+        start_offset=start_offset,
+        end_offset=end_offset,
         note=note,
     )
     db.add(annotation)
@@ -113,6 +130,25 @@ def _to_annotation_out(annotation: models.ReadingAnnotation) -> schemas.Annotati
         question_id=annotation.question_id,
         annotation_type=annotation.annotation_type,
         selected_text=annotation.selected_text,
+        start_offset=annotation.start_offset,
+        end_offset=annotation.end_offset,
         note=annotation.note,
         created_at=annotation.created_at,
     )
+
+
+def _validate_offsets(paragraph_text: str, selected_text: str, start_offset: int, end_offset: int) -> None:
+    if start_offset < 0:
+        raise AnnotationError(400, "start_offset must be greater than or equal to 0")
+    if end_offset < 0:
+        raise AnnotationError(400, "end_offset must be greater than or equal to 0")
+    if start_offset >= end_offset:
+        raise AnnotationError(400, "start_offset must be less than end_offset")
+    if end_offset > len(paragraph_text):
+        raise AnnotationError(400, "end_offset exceeds paragraph text length")
+
+    paragraph_slice = paragraph_text[start_offset:end_offset]
+    if paragraph_slice != selected_text:
+        raise AnnotationError(400, "selected_text must exactly match paragraph.text[start_offset:end_offset]")
+    if not selected_text.strip():
+        raise AnnotationError(400, "selected_text must not be only whitespace")

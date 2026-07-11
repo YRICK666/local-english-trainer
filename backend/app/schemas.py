@@ -118,6 +118,8 @@ class AnnotationCreate(BaseModel):
     question_id: str | None = None
     annotation_type: str
     selected_text: str
+    start_offset: int | None = None
+    end_offset: int | None = None
     note: str | None = None
 
 
@@ -129,6 +131,8 @@ class AnnotationOut(BaseModel):
     question_id: str | None = None
     annotation_type: str
     selected_text: str
+    start_offset: int | None = None
+    end_offset: int | None = None
     note: str | None = None
     created_at: datetime | None = None
 
@@ -136,7 +140,6 @@ class AnnotationOut(BaseModel):
 class AnnotationDeleteResponse(BaseModel):
     deleted: bool
     annotation_id: str
-
 
 
 class VocabularyItemCreate(BaseModel):
@@ -217,4 +220,3 @@ class SentenceItemOut(BaseModel):
 class SentenceDeleteResponse(BaseModel):
     deleted: bool
     sentence_id: str
-

@@ -143,6 +143,8 @@ class ReadingAnnotation(Base):
     question_id = Column(String(120), nullable=True, index=True)
     annotation_type = Column(String(64), nullable=False)
     selected_text = Column(Text, nullable=False)
+    start_offset = Column(Integer, nullable=True)
+    end_offset = Column(Integer, nullable=True)
     note = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -150,7 +152,6 @@ class ReadingAnnotation(Base):
     passage = relationship("Passage", back_populates="annotations")
     paragraph = relationship("Paragraph", back_populates="annotations")
     question = relationship("Question", back_populates="annotations")
-
 
 
 class VocabularyItem(Base):
@@ -183,4 +184,3 @@ class SentenceItem(Base):
     source_annotation_id = Column(String(120), nullable=True, index=True)
     review_status = Column(String(40), nullable=False, default="new")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-

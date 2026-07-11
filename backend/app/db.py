@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -32,10 +33,27 @@ def configure_database(database_url: str) -> None:
     SessionLocal.configure(bind=engine)
 
 
+def ensure_reading_annotations_offset_columns(bind: Engine) -> None:
+    if bind.dialect.name != "sqlite":
+        return
+
+    with bind.begin() as connection:
+        rows = connection.exec_driver_sql("PRAGMA table_info(reading_annotations)").mappings().all()
+        if not rows:
+            return
+
+        existing_columns = {str(row["name"]) for row in rows}
+        if "start_offset" not in existing_columns:
+            connection.exec_driver_sql("ALTER TABLE reading_annotations ADD COLUMN start_offset INTEGER")
+        if "end_offset" not in existing_columns:
+            connection.exec_driver_sql("ALTER TABLE reading_annotations ADD COLUMN end_offset INTEGER")
+
+
 def init_db() -> None:
     from backend.app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    ensure_reading_annotations_offset_columns(engine)
 
 
 def get_db():
