@@ -1,9 +1,30 @@
 # Inline Annotation Design
 
-- Status: Planned
-- 该功能尚未实现。
-- 本文是后续分轮实施的设计基线。
-- 不得把计划内容误写成当前已完成能力。
+- Status: Implemented through Round 4
+- Round 1 已通过 `9b82e86 feat: add precise annotation offsets` 提交。
+- Round 2-4 已通过 `839fb20 feat: add inline annotation workflow` 提交。
+- 本文仍是当前实现和后续演进的长期架构基线。
+- 不得把后续计划误写成当前已完成能力。
+
+当前已实现：
+
+- 同一 `paragraph` 内选区。
+- 桌面端右键创建四类 annotation：`answer_evidence`、`synonym_replacement`、`vocabulary`、`difficult_sentence`。
+- Unicode code point offset，并使用 `[start_offset, end_offset)`。
+- 持久化原文内联高亮。
+- 部分重叠和包含 annotation 渲染。
+- 旧无 offset annotation 的唯一匹配回退显示。
+- `vocabulary` 与 `difficult_sentence` annotation 自动进入本地词库或句库。
+- annotation 与自动入库项目保持原子事务，失败 rollback。
+- 删除 annotation 后保留学习项目，并清空对应 `source_annotation_id`。
+- Settings 中四类 annotation 颜色配置。
+- `localStorage` 颜色配置安全回退。
+
+后续允许演进：
+
+- `answer_evidence` / `synonym_replacement` 绑定具体题号的交互和校验。
+- Vocabulary 来源复习 UI 补强。
+- AI annotation suggestion 工作流。
 
 ## Goals
 
