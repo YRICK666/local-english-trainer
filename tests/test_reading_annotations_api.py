@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from backend.app import db as app_db
 from backend.app import models
 from backend.app.main import app
+from backend.app.services import sentence_service, vocabulary_service
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "reading_pack_minimal.json"
 TEST_DB_URL = "sqlite:///:memory:"
@@ -84,23 +85,83 @@ def import_custom_pack(
     return response.json()["pack"]
 
 
+def list_vocabulary(client: TestClient) -> list[dict]:
+    response = client.get("/api/vocabulary")
+    assert response.status_code == 200
+    return response.json()
+
+
+def list_sentences(client: TestClient) -> list[dict]:
+    response = client.get("/api/sentences")
+    assert response.status_code == 200
+    return response.json()
+
+
 @pytest.mark.parametrize("annotation_type", [
     "answer_evidence",
     "synonym_replacement",
-    "vocabulary",
-    "difficult_sentence",
 ])
-def test_creates_supported_annotation_types(client: TestClient, imported_pack: dict, annotation_type: str) -> None:
+def test_creates_non_library_annotation_types_without_auto_library_items(client: TestClient, imported_pack: dict, annotation_type: str) -> None:
     response = client.post("/api/annotations", json=build_annotation_payload(annotation_type))
 
     assert response.status_code == 200
     body = response.json()
-    assert body["annotation_id"].startswith("annotation-")
-    assert body["annotation_type"] == annotation_type
-    assert body["pack_id"] == "attempt-reading-pack"
-    assert body["question_id"] == "q-attempt-1"
-    assert body["start_offset"] is None
-    assert body["end_offset"] is None
+    annotation = body["annotation"]
+    assert annotation["annotation_id"].startswith("annotation-")
+    assert annotation["annotation_type"] == annotation_type
+    assert annotation["pack_id"] == "attempt-reading-pack"
+    assert annotation["question_id"] == "q-attempt-1"
+    assert annotation["start_offset"] is None
+    assert annotation["end_offset"] is None
+    assert body["created_vocabulary_item"] is None
+    assert body["created_sentence_item"] is None
+    assert list_vocabulary(client) == []
+    assert list_sentences(client) == []
+
+
+def test_creates_vocabulary_annotation_and_auto_vocabulary_item(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload("vocabulary", selected_text="near the window", start_offset=24, end_offset=39))
+
+    assert response.status_code == 200
+    body = response.json()
+    annotation = body["annotation"]
+    vocabulary_item = body["created_vocabulary_item"]
+    assert annotation["start_offset"] == 24
+    assert annotation["end_offset"] == 39
+    assert vocabulary_item is not None
+    assert body["created_sentence_item"] is None
+    assert vocabulary_item["word"] == "near the window"
+    assert vocabulary_item["meaning"] is None
+    assert vocabulary_item["source_sentence"] == "Nora keeps a small desk near the window."
+    assert vocabulary_item["source_pack_id"] == annotation["pack_id"]
+    assert vocabulary_item["source_passage_id"] == annotation["passage_id"]
+    assert vocabulary_item["source_paragraph_id"] == annotation["paragraph_id"]
+    assert vocabulary_item["source_annotation_id"] == annotation["annotation_id"]
+    assert vocabulary_item["review_status"] == "new"
+
+
+def test_creates_difficult_sentence_annotation_and_auto_sentence_item(client: TestClient, imported_pack: dict) -> None:
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "difficult_sentence",
+        selected_text="small desk near the window",
+        start_offset=13,
+        end_offset=39,
+    ))
+
+    assert response.status_code == 200
+    body = response.json()
+    annotation = body["annotation"]
+    sentence_item = body["created_sentence_item"]
+    assert sentence_item is not None
+    assert body["created_vocabulary_item"] is None
+    assert sentence_item["sentence_text"] == "small desk near the window"
+    assert sentence_item["translation"] is None
+    assert sentence_item["structure_note"] is None
+    assert sentence_item["source_pack_id"] == annotation["pack_id"]
+    assert sentence_item["source_passage_id"] == annotation["passage_id"]
+    assert sentence_item["source_paragraph_id"] == annotation["paragraph_id"]
+    assert sentence_item["source_annotation_id"] == annotation["annotation_id"]
+    assert sentence_item["review_status"] == "new"
 
 
 def test_creates_annotation_with_valid_offsets(client: TestClient, imported_pack: dict) -> None:
@@ -112,8 +173,9 @@ def test_creates_annotation_with_valid_offsets(client: TestClient, imported_pack
     ))
 
     assert response.status_code == 200
-    assert response.json()["start_offset"] == 24
-    assert response.json()["end_offset"] == 39
+    annotation = response.json()["annotation"]
+    assert annotation["start_offset"] == 24
+    assert annotation["end_offset"] == 39
 
 
 def test_rejects_invalid_annotation_type(client: TestClient, imported_pack: dict) -> None:
@@ -131,12 +193,12 @@ def test_rejects_blank_selected_text(client: TestClient, imported_pack: dict) ->
 
 
 def test_legacy_request_without_offsets_still_succeeds(client: TestClient, imported_pack: dict) -> None:
-    response = client.post("/api/annotations", json=build_annotation_payload("vocabulary", question_id=None))
+    response = client.post("/api/annotations", json=build_annotation_payload("answer_evidence", question_id=None))
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["start_offset"] is None
-    assert body["end_offset"] is None
+    annotation = response.json()["annotation"]
+    assert annotation["start_offset"] is None
+    assert annotation["end_offset"] is None
 
 
 def test_list_returns_null_offsets_for_legacy_annotations(client: TestClient, imported_pack: dict) -> None:
@@ -297,11 +359,12 @@ def test_rejects_paragraph_that_belongs_to_another_pack(client: TestClient, impo
     assert "paragraph_id does not belong to passage" in response.json()["detail"]
 
 
-def test_rejects_duplicate_annotation_range_for_same_type(client: TestClient, imported_pack: dict) -> None:
+def test_rejects_duplicate_vocabulary_annotation_range_without_creating_extra_library_item(client: TestClient, imported_pack: dict) -> None:
     first = client.post("/api/annotations", json=build_annotation_payload(
         "vocabulary", selected_text="near the window", start_offset=24, end_offset=39
     ))
     assert first.status_code == 200
+    assert len(list_vocabulary(client)) == 1
 
     second = client.post("/api/annotations", json=build_annotation_payload(
         "vocabulary", selected_text="near the window", start_offset=24, end_offset=39
@@ -309,6 +372,25 @@ def test_rejects_duplicate_annotation_range_for_same_type(client: TestClient, im
 
     assert second.status_code == 409
     assert "annotation range already exists" in second.json()["detail"]
+    assert len(client.get("/api/annotations", params={"pack_id": "attempt-reading-pack"}).json()) == 1
+    assert len(list_vocabulary(client)) == 1
+
+
+def test_rejects_duplicate_sentence_annotation_range_without_creating_extra_library_item(client: TestClient, imported_pack: dict) -> None:
+    first = client.post("/api/annotations", json=build_annotation_payload(
+        "difficult_sentence", selected_text="small desk near the window", start_offset=13, end_offset=39
+    ))
+    assert first.status_code == 200
+    assert len(list_sentences(client)) == 1
+
+    second = client.post("/api/annotations", json=build_annotation_payload(
+        "difficult_sentence", selected_text="small desk near the window", start_offset=13, end_offset=39
+    ))
+
+    assert second.status_code == 409
+    assert "annotation range already exists" in second.json()["detail"]
+    assert len(client.get("/api/annotations", params={"pack_id": "attempt-reading-pack"}).json()) == 1
+    assert len(list_sentences(client)) == 1
 
 
 def test_allows_same_range_for_different_annotation_types(client: TestClient, imported_pack: dict) -> None:
@@ -347,6 +429,112 @@ def test_allows_contained_ranges(client: TestClient, imported_pack: dict) -> Non
     assert second.status_code == 200
 
 
+def test_rolls_back_annotation_when_auto_vocabulary_creation_fails(client: TestClient, imported_pack: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*args, **kwargs):
+        raise vocabulary_service.VocabularyError(400, "forced vocabulary failure")
+
+    monkeypatch.setattr(vocabulary_service, "create_vocabulary_item_no_commit", fail)
+
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=24, end_offset=39
+    ))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "forced vocabulary failure"
+    assert client.get("/api/annotations", params={"pack_id": "attempt-reading-pack"}).json() == []
+    assert list_vocabulary(client) == []
+
+
+def test_rolls_back_annotation_when_auto_sentence_creation_fails(client: TestClient, imported_pack: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*args, **kwargs):
+        raise sentence_service.SentenceError(400, "forced sentence failure")
+
+    monkeypatch.setattr(sentence_service, "create_sentence_item_no_commit", fail)
+
+    response = client.post("/api/annotations", json=build_annotation_payload(
+        "difficult_sentence", selected_text="small desk near the window", start_offset=13, end_offset=39
+    ))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "forced sentence failure"
+    assert client.get("/api/annotations", params={"pack_id": "attempt-reading-pack"}).json() == []
+    assert list_sentences(client) == []
+
+
+def test_delete_vocabulary_annotation_keeps_vocabulary_item_and_clears_source_annotation_id(client: TestClient, imported_pack: dict) -> None:
+    created = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=24, end_offset=39
+    ))
+    assert created.status_code == 200
+    body = created.json()
+    annotation_id = body["annotation"]["annotation_id"]
+    vocab_id = body["created_vocabulary_item"]["vocab_id"]
+
+    delete_response = client.delete(f"/api/annotations/{annotation_id}")
+    assert delete_response.status_code == 200
+
+    vocabulary_detail = client.get(f"/api/vocabulary/{vocab_id}")
+    assert vocabulary_detail.status_code == 200
+    detail_body = vocabulary_detail.json()
+    assert detail_body["source_annotation_id"] is None
+    assert detail_body["source_pack_id"] == "attempt-reading-pack"
+    assert detail_body["source_passage_id"] == "passage-attempt"
+    assert detail_body["source_paragraph_id"] == "para-attempt-1"
+
+
+def test_delete_difficult_sentence_annotation_keeps_sentence_item_and_clears_source_annotation_id(client: TestClient, imported_pack: dict) -> None:
+    created = client.post("/api/annotations", json=build_annotation_payload(
+        "difficult_sentence", selected_text="small desk near the window", start_offset=13, end_offset=39
+    ))
+    assert created.status_code == 200
+    body = created.json()
+    annotation_id = body["annotation"]["annotation_id"]
+    sentence_id = body["created_sentence_item"]["sentence_id"]
+
+    delete_response = client.delete(f"/api/annotations/{annotation_id}")
+    assert delete_response.status_code == 200
+
+    sentence_detail = client.get(f"/api/sentences/{sentence_id}")
+    assert sentence_detail.status_code == 200
+    detail_body = sentence_detail.json()
+    assert detail_body["source_annotation_id"] is None
+    assert detail_body["source_pack_id"] == "attempt-reading-pack"
+    assert detail_body["source_passage_id"] == "passage-attempt"
+    assert detail_body["source_paragraph_id"] == "para-attempt-1"
+
+
+def test_delete_vocabulary_item_does_not_delete_annotation(client: TestClient, imported_pack: dict) -> None:
+    created = client.post("/api/annotations", json=build_annotation_payload(
+        "vocabulary", selected_text="near the window", start_offset=24, end_offset=39
+    ))
+    assert created.status_code == 200
+    annotation_id = created.json()["annotation"]["annotation_id"]
+    vocab_id = created.json()["created_vocabulary_item"]["vocab_id"]
+
+    deleted = client.delete(f"/api/vocabulary/{vocab_id}")
+    assert deleted.status_code == 200
+
+    annotations = client.get("/api/annotations", params={"pack_id": "attempt-reading-pack"})
+    assert annotations.status_code == 200
+    assert annotations.json()[0]["annotation_id"] == annotation_id
+
+
+def test_delete_sentence_item_does_not_delete_annotation(client: TestClient, imported_pack: dict) -> None:
+    created = client.post("/api/annotations", json=build_annotation_payload(
+        "difficult_sentence", selected_text="small desk near the window", start_offset=13, end_offset=39
+    ))
+    assert created.status_code == 200
+    annotation_id = created.json()["annotation"]["annotation_id"]
+    sentence_id = created.json()["created_sentence_item"]["sentence_id"]
+
+    deleted = client.delete(f"/api/sentences/{sentence_id}")
+    assert deleted.status_code == 200
+
+    annotations = client.get("/api/annotations", params={"pack_id": "attempt-reading-pack"})
+    assert annotations.status_code == 200
+    assert annotations.json()[0]["annotation_id"] == annotation_id
+
+
 def test_handles_smart_quotes_and_em_dash_with_code_point_offsets(client: TestClient, imported_pack: dict) -> None:
     paragraph_text = 'He said “go”—then left.'
     selected_text = '“go”—then'
@@ -373,7 +561,7 @@ def test_handles_smart_quotes_and_em_dash_with_code_point_offsets(client: TestCl
     })
 
     assert response.status_code == 200
-    body = response.json()
+    body = response.json()["annotation"]
     assert body["selected_text"] == selected_text
     assert body["start_offset"] == start_offset
     assert body["end_offset"] == end_offset
@@ -404,7 +592,7 @@ def test_handles_non_bmp_characters_with_code_point_offsets(client: TestClient, 
     })
 
     assert response.status_code == 200
-    body = response.json()
+    body = response.json()["annotation"]
     assert body["selected_text"] == "😀"
     assert body["start_offset"] == start_offset
     assert body["end_offset"] == end_offset
@@ -433,7 +621,7 @@ def test_lists_annotations_for_current_pack_only(client: TestClient, imported_pa
         "passage_id": "passage-second",
         "paragraph_id": "para-second-1",
         "question_id": "q-second-1",
-        "annotation_type": "vocabulary",
+        "annotation_type": "answer_evidence",
         "selected_text": "small desk",
         "note": None,
     })
@@ -444,7 +632,8 @@ def test_lists_annotations_for_current_pack_only(client: TestClient, imported_pa
     body = list_response.json()
     assert len(body) == 1
     assert body[0]["pack_id"] == "attempt-reading-pack"
-    assert body[0]["annotation_id"] == first.json()["annotation_id"]
+    assert body[0]["annotation_id"] == first.json()["annotation"]["annotation_id"]
+    assert "annotation" not in body[0]
 
 
 def test_list_returns_404_for_missing_pack(client: TestClient) -> None:
@@ -455,9 +644,9 @@ def test_list_returns_404_for_missing_pack(client: TestClient) -> None:
 
 
 def test_deletes_annotation_and_removes_it_from_list(client: TestClient, imported_pack: dict) -> None:
-    created = client.post("/api/annotations", json=build_annotation_payload("difficult_sentence", question_id=None))
+    created = client.post("/api/annotations", json=build_annotation_payload("answer_evidence", question_id=None))
     assert created.status_code == 200
-    annotation_id = created.json()["annotation_id"]
+    annotation_id = created.json()["annotation"]["annotation_id"]
 
     delete_response = client.delete(f"/api/annotations/{annotation_id}")
     assert delete_response.status_code == 200

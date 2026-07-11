@@ -220,3 +220,8 @@ class SentenceItemOut(BaseModel):
 class SentenceDeleteResponse(BaseModel):
     deleted: bool
     sentence_id: str
+
+class AnnotationCreateResult(BaseModel):
+    annotation: AnnotationOut
+    created_vocabulary_item: VocabularyItemOut | None = None
+    created_sentence_item: SentenceItemOut | None = None

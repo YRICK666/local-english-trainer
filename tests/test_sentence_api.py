@@ -53,12 +53,12 @@ def create_annotation(client: TestClient) -> dict:
         "passage_id": "passage-attempt",
         "paragraph_id": "para-attempt-1",
         "question_id": "q-attempt-1",
-        "annotation_type": "difficult_sentence",
+        "annotation_type": "answer_evidence",
         "selected_text": "Nora keeps a small desk near the window.",
         "note": "annotation source"
     })
     assert response.status_code == 200
-    return response.json()
+    return response.json()["annotation"]
 
 
 def create_sentence(client: TestClient, **overrides: str | None) -> dict:
@@ -156,14 +156,14 @@ def test_patch_rejects_source_annotation_id_used_by_another_sentence_item(client
         "passage_id": "passage-attempt",
         "paragraph_id": "para-attempt-1",
         "question_id": "q-attempt-1",
-        "annotation_type": "difficult_sentence",
+        "annotation_type": "answer_evidence",
         "selected_text": "A second sentence for testing.",
         "note": "second annotation source"
     })
     assert annotation_two.status_code == 200
 
     first = create_sentence(client, sentence_text="Sentence one.", source_annotation_id=annotation_one["annotation_id"])
-    second = create_sentence(client, sentence_text="Sentence two.", source_annotation_id=annotation_two.json()["annotation_id"])
+    second = create_sentence(client, sentence_text="Sentence two.", source_annotation_id=annotation_two.json()["annotation"]["annotation_id"])
 
     response = client.patch(
         f"/api/sentences/{second['sentence_id']}",

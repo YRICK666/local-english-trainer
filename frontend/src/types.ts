@@ -112,6 +112,8 @@ export type ReadingAnnotation = {
   question_id?: string | null;
   annotation_type: AnnotationType;
   selected_text: string;
+  start_offset?: number | null;
+  end_offset?: number | null;
   note?: string | null;
   created_at?: string | null;
 };
@@ -123,12 +125,20 @@ export type AnnotationCreate = {
   question_id?: string | null;
   annotation_type: AnnotationType;
   selected_text: string;
+  start_offset?: number | null;
+  end_offset?: number | null;
   note?: string | null;
 };
 
 export type AnnotationDeleteResponse = {
   deleted: boolean;
   annotation_id: string;
+};
+
+export type AnnotationCreateResult = {
+  annotation: ReadingAnnotation;
+  created_vocabulary_item?: VocabularyItem | null;
+  created_sentence_item?: SentenceItem | null;
 };
 export type VocabularyReviewStatus = "new" | "learning" | "familiar";
 

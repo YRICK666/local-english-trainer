@@ -1,5 +1,6 @@
 import type {
   AnnotationCreate,
+  AnnotationCreateResult,
   AnnotationDeleteResponse,
   AttemptAnswerIn,
   ImportValidationResult,
@@ -93,7 +94,7 @@ export function listAnnotations(packId: string) {
 }
 
 export function createAnnotation(payload: AnnotationCreate) {
-  return requestJson<ReadingAnnotation>("/api/annotations", {
+  return requestJson<AnnotationCreateResult>("/api/annotations", {
     method: "POST",
     body: JSON.stringify(payload)
   });

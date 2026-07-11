@@ -16,7 +16,15 @@ class SentenceError(Exception):
         super().__init__(detail)
 
 
-def create_sentence_item(db: Session, payload: schemas.SentenceItemCreate) -> schemas.SentenceItemOut:
+def create_sentence_item(db: Session, payload: schemas.SentenceItemCreate, *, commit: bool = True) -> schemas.SentenceItemOut:
+    item = create_sentence_item_no_commit(db, payload)
+    if commit:
+        db.commit()
+        db.refresh(item)
+    return _to_sentence_out(item)
+
+
+def create_sentence_item_no_commit(db: Session, payload: schemas.SentenceItemCreate) -> models.SentenceItem:
     sentence_text = _normalize_required_sentence_text(payload.sentence_text)
     review_status = _normalize_review_status(payload.review_status)
     source_annotation_id = _normalize_optional_text(payload.source_annotation_id)
@@ -35,9 +43,8 @@ def create_sentence_item(db: Session, payload: schemas.SentenceItemCreate) -> sc
         review_status=review_status,
     )
     db.add(item)
-    db.commit()
-    db.refresh(item)
-    return _to_sentence_out(item)
+    db.flush()
+    return item
 
 
 def list_sentence_items(db: Session) -> list[schemas.SentenceItemOut]:

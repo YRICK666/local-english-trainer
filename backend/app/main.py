@@ -69,8 +69,8 @@ def get_practice_attempt(attempt_id: str, db: Session = Depends(get_db)) -> sche
     return attempt
 
 
-@app.post("/api/annotations", response_model=schemas.AnnotationOut)
-def create_annotation(payload: schemas.AnnotationCreate, db: Session = Depends(get_db)) -> schemas.AnnotationOut:
+@app.post("/api/annotations", response_model=schemas.AnnotationCreateResult)
+def create_annotation(payload: schemas.AnnotationCreate, db: Session = Depends(get_db)) -> schemas.AnnotationCreateResult:
     try:
         return annotation_service.create_annotation(db, payload)
     except annotation_service.AnnotationError as exc:

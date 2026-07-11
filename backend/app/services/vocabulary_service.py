@@ -16,7 +16,15 @@ class VocabularyError(Exception):
         super().__init__(detail)
 
 
-def create_vocabulary_item(db: Session, payload: schemas.VocabularyItemCreate) -> schemas.VocabularyItemOut:
+def create_vocabulary_item(db: Session, payload: schemas.VocabularyItemCreate, *, commit: bool = True) -> schemas.VocabularyItemOut:
+    item = create_vocabulary_item_no_commit(db, payload)
+    if commit:
+        db.commit()
+        db.refresh(item)
+    return _to_vocabulary_out(item)
+
+
+def create_vocabulary_item_no_commit(db: Session, payload: schemas.VocabularyItemCreate) -> models.VocabularyItem:
     word = _normalize_required_word(payload.word)
     review_status = _normalize_review_status(payload.review_status)
     source_annotation_id = _normalize_optional_text(payload.source_annotation_id)
@@ -35,9 +43,8 @@ def create_vocabulary_item(db: Session, payload: schemas.VocabularyItemCreate) -
         review_status=review_status,
     )
     db.add(item)
-    db.commit()
-    db.refresh(item)
-    return _to_vocabulary_out(item)
+    db.flush()
+    return item
 
 
 def list_vocabulary_items(db: Session) -> list[schemas.VocabularyItemOut]:

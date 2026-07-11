@@ -1,27 +1,18 @@
 from __future__ import annotations
 
-import sqlite3
-import tempfile
-from pathlib import Path
-
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 
 from backend.app import db as app_db
 from backend.app import models  # noqa: F401
 
+def _make_memory_engine():
+    return create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 
-def _sqlite_url(path: Path) -> str:
-    return f"sqlite:///{path.as_posix()}"
 
-
-def _create_old_annotation_table(db_path: Path, create_table_sql: str) -> None:
-    connection = sqlite3.connect(db_path)
-    try:
-        connection.execute(create_table_sql)
-        connection.commit()
-    finally:
-        connection.close()
-
+def _create_old_annotation_table(engine, create_table_sql: str) -> None:
+    with engine.begin() as connection:
+        connection.exec_driver_sql(create_table_sql)
 
 def _annotation_table_sql(extra_columns: str = "") -> str:
     suffix = f", {extra_columns}" if extra_columns else ""
@@ -53,13 +44,13 @@ def _table_columns(engine) -> set[str]:
 
 
 def test_init_db_upgrades_old_reading_annotations_table_and_preserves_data() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "legacy.sqlite3"
-        _create_old_annotation_table(db_path, _annotation_table_sql())
+    original_url = app_db.DATABASE_URL
+    try:
+        app_db.configure_database("sqlite:///:memory:")
+        _create_old_annotation_table(app_db.engine, _annotation_table_sql())
 
-        connection = sqlite3.connect(db_path)
-        try:
-            connection.execute(
+        with app_db.engine.begin() as connection:
+            connection.exec_driver_sql(
                 """
                 INSERT INTO reading_annotations (
                     id, annotation_id, pack_db_id, pack_id, passage_db_id, passage_id,
@@ -84,73 +75,56 @@ def test_init_db_upgrades_old_reading_annotations_table_and_preserves_data() -> 
                     None,
                 ),
             )
-            connection.commit()
-        finally:
-            connection.close()
 
-        original_url = app_db.DATABASE_URL
-        try:
-            app_db.configure_database(_sqlite_url(db_path))
-            app_db.init_db()
-            app_db.init_db()
+        app_db.init_db()
+        app_db.init_db()
 
-            columns = _table_columns(app_db.engine)
-            assert "start_offset" in columns
-            assert "end_offset" in columns
+        columns = _table_columns(app_db.engine)
+        assert "start_offset" in columns
+        assert "end_offset" in columns
 
-            with app_db.engine.connect() as sql_connection:
-                row = sql_connection.exec_driver_sql(
-                    "SELECT annotation_id, selected_text, start_offset, end_offset FROM reading_annotations WHERE annotation_id = 'annotation-legacy'"
-                ).mappings().one()
-            assert row["annotation_id"] == "annotation-legacy"
-            assert row["selected_text"] == "legacy text"
-            assert row["start_offset"] is None
-            assert row["end_offset"] is None
-        finally:
-            app_db.configure_database(original_url)
-
+        with app_db.engine.connect() as sql_connection:
+            row = sql_connection.exec_driver_sql(
+                "SELECT annotation_id, selected_text, start_offset, end_offset FROM reading_annotations WHERE annotation_id = 'annotation-legacy'"
+            ).mappings().one()
+        assert row["annotation_id"] == "annotation-legacy"
+        assert row["selected_text"] == "legacy text"
+        assert row["start_offset"] is None
+        assert row["end_offset"] is None
+    finally:
+        app_db.configure_database(original_url)
 
 def test_compatibility_helper_adds_only_missing_end_offset_column() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "start-only.sqlite3"
-        _create_old_annotation_table(db_path, _annotation_table_sql("start_offset INTEGER"))
-
-        engine = create_engine(_sqlite_url(db_path), connect_args={"check_same_thread": False})
-        try:
-            app_db.ensure_reading_annotations_offset_columns(engine)
-            app_db.ensure_reading_annotations_offset_columns(engine)
-            columns = _table_columns(engine)
-            assert "start_offset" in columns
-            assert "end_offset" in columns
-        finally:
-            engine.dispose()
-
+    engine = _make_memory_engine()
+    try:
+        _create_old_annotation_table(engine, _annotation_table_sql("start_offset INTEGER"))
+        app_db.ensure_reading_annotations_offset_columns(engine)
+        app_db.ensure_reading_annotations_offset_columns(engine)
+        columns = _table_columns(engine)
+        assert "start_offset" in columns
+        assert "end_offset" in columns
+    finally:
+        engine.dispose()
 
 def test_compatibility_helper_adds_only_missing_start_offset_column() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "end-only.sqlite3"
-        _create_old_annotation_table(db_path, _annotation_table_sql("end_offset INTEGER"))
-
-        engine = create_engine(_sqlite_url(db_path), connect_args={"check_same_thread": False})
-        try:
-            app_db.ensure_reading_annotations_offset_columns(engine)
-            app_db.ensure_reading_annotations_offset_columns(engine)
-            columns = _table_columns(engine)
-            assert "start_offset" in columns
-            assert "end_offset" in columns
-        finally:
-            engine.dispose()
-
+    engine = _make_memory_engine()
+    try:
+        _create_old_annotation_table(engine, _annotation_table_sql("end_offset INTEGER"))
+        app_db.ensure_reading_annotations_offset_columns(engine)
+        app_db.ensure_reading_annotations_offset_columns(engine)
+        columns = _table_columns(engine)
+        assert "start_offset" in columns
+        assert "end_offset" in columns
+    finally:
+        engine.dispose()
 
 def test_new_database_create_all_has_offset_columns() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "fresh.sqlite3"
-        engine = create_engine(_sqlite_url(db_path), connect_args={"check_same_thread": False})
-        try:
-            app_db.Base.metadata.create_all(bind=engine)
-            app_db.ensure_reading_annotations_offset_columns(engine)
-            columns = _table_columns(engine)
-            assert "start_offset" in columns
-            assert "end_offset" in columns
-        finally:
-            engine.dispose()
+    engine = _make_memory_engine()
+    try:
+        app_db.Base.metadata.create_all(bind=engine)
+        app_db.ensure_reading_annotations_offset_columns(engine)
+        columns = _table_columns(engine)
+        assert "start_offset" in columns
+        assert "end_offset" in columns
+    finally:
+        engine.dispose()

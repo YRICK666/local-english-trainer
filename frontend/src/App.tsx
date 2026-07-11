@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { InlineAnnotatedParagraph } from "./InlineAnnotatedParagraph";
+import type { ParagraphSelection } from "./annotationText";
+import { DEFAULT_ANNOTATION_COLORS, getAnnotationColorCssVariables, loadAnnotationColors, saveAnnotationColors, type AnnotationColorMap } from "./annotationColors";
+
 import { ApiError, createAnnotation, createSentenceItem, createVocabularyItem, deleteAnnotation, deleteSentenceItem, deleteVocabularyItem, getPracticeAttempt, getReadingPack, getSentenceItem, getVocabularyItem, importReadingPack, listAnnotations, listPracticeAttempts, listReadingPacks, listSentenceItems, listVocabularyItems, submitPracticeAttempt, updateSentenceItem, updateVocabularyItem, validateReadingPack } from "./api";
 import { mockReadingPack } from "./mockData";
 import type { AnnotationCreate, AnnotationType, ImportValidationResult, PracticeAttemptDetail, PracticeAttemptSummary, ReadingAnnotation, ReadingPack, ReadingPackImportResponse, ReadingPackSummary, SentenceItem, SentenceItemCreate, SentenceItemUpdate, SentenceReviewStatus, VocabularyItem, VocabularyItemCreate, VocabularyItemUpdate, VocabularyReviewStatus } from "./types";
@@ -304,6 +308,7 @@ function App() {
   const [deletingSentenceId, setDeletingSentenceId] = useState<string | null>(null);
   const [openingSentenceSourceId, setOpeningSentenceSourceId] = useState<string | null>(null);
   const [sourceTarget, setSourceTarget] = useState<SourceTarget | null>(null);
+  const [annotationColors, setAnnotationColors] = useState<AnnotationColorMap>(() => loadAnnotationColors());
 
   const orderedPassages = useMemo(() => sortPassages(pack.passages), [pack.passages]);
   const currentPassage = orderedPassages.find((item) => item.passage_id === currentPassageId) ?? orderedPassages[0];
@@ -331,6 +336,26 @@ function App() {
   const sentenceUnavailableMessage = "后端未连接，暂时无法读取本地句库。";
   const sentenceSaveUnavailableMessage = "后端未连接，暂时无法保存句条修改。";
   const sentenceDeleteUnavailableMessage = "后端未连接，暂时无法删除句条。";
+
+  const annotationColorCssVariables = useMemo(
+    () => getAnnotationColorCssVariables(annotationColors),
+    [annotationColors]
+  );
+
+  useEffect(() => {
+    saveAnnotationColors(annotationColors);
+  }, [annotationColors]);
+
+  function handleAnnotationColorChange(annotationType: AnnotationType, nextColor: string) {
+    setAnnotationColors((prev) => ({
+      ...prev,
+      [annotationType]: nextColor
+    }));
+  }
+
+  function resetAnnotationColors() {
+    setAnnotationColors({ ...DEFAULT_ANNOTATION_COLORS });
+  }
 
   function clearSourceTarget() {
     setSourceTarget(null);
@@ -392,12 +417,21 @@ function App() {
 
     setIsAnnotationSaving(true);
     setAnnotationError(null);
+    setAnnotationNotice(null);
     try {
       const created = await createAnnotation(payload);
-      setAnnotations((prev) => [...prev, created]);
+      setAnnotations((prev) => [...prev, created.annotation]);
+      if (created.created_vocabulary_item) {
+        setAnnotationNotice(`已自动加入词库：${created.created_vocabulary_item.word}`);
+      } else if (created.created_sentence_item) {
+        setAnnotationNotice(`已自动加入句库：${created.created_sentence_item.sentence_text}`);
+      } else {
+        setAnnotationNotice("标注已保存。");
+      }
       return true;
-    } catch {
-      setAnnotationError(annotationUnavailableMessage);
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : annotationUnavailableMessage;
+      setAnnotationError(message);
       return false;
     } finally {
       setIsAnnotationSaving(false);
@@ -868,7 +902,7 @@ function App() {
   }, [activeView]);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" style={annotationColorCssVariables}>
       <aside className="sidebar" aria-label="Main navigation">
         <div className="brand-block">
           <span className="brand-mark">LE</span>
@@ -948,6 +982,7 @@ function App() {
             isSubmitting={isSubmitting}
             workspaceError={workspaceError}
             sourceTarget={sourceTarget}
+            annotationColors={annotationColors}
             onClearSourceTarget={clearSourceTarget}
             onRefresh={loadInitialData}
             onLoadPack={(packId) => {
@@ -1013,11 +1048,65 @@ function App() {
           />
         )}
         {activeView === "settings" && (
-          <EmptyState title="Settings" description="偏好设置入口先占位，后续可放阅读字号、行宽、主题等本地设置。" />
+          <SettingsView
+            annotationColors={annotationColors}
+            onChangeAnnotationColor={handleAnnotationColorChange}
+            onResetAnnotationColors={resetAnnotationColors}
+          />
         )}
         </>)}
       </main>
     </div>
+  );
+}
+
+function SettingsView({
+  annotationColors,
+  onChangeAnnotationColor,
+  onResetAnnotationColors
+}: {
+  annotationColors: AnnotationColorMap;
+  onChangeAnnotationColor: (annotationType: AnnotationType, nextColor: string) => void;
+  onResetAnnotationColors: () => void;
+}) {
+  return (
+    <section className="page-stack">
+      <div className="page-header slim">
+        <div>
+          <p className="eyebrow">Settings</p>
+          <h1>标注颜色设置</h1>
+          <p>四种 annotation 类型都使用本地颜色配置。修改后会立即反映到 Workspace 的原文高亮。</p>
+        </div>
+        <div className="inline-actions">
+          <button type="button" className="secondary-action" onClick={onResetAnnotationColors}>恢复默认颜色</button>
+        </div>
+      </div>
+
+      <div className="content-section settings-section">
+        <div className="settings-note">
+          颜色配置保存在当前浏览器的本地存储里；如果本地数据损坏、缺项或颜色值非法，系统会按类型逐项回退到默认颜色。
+        </div>
+
+        <div className="annotation-color-grid">
+          {annotationTypeOptions.map((option) => (
+            <label key={option.value} className="annotation-color-card">
+              <div className="annotation-color-card-header">
+                <span className="annotation-type-pill">{option.label}</span>
+                <code>{annotationColors[option.value]}</code>
+              </div>
+              <input
+                className="annotation-color-input"
+                type="color"
+                value={annotationColors[option.value]}
+                aria-label={`${option.label} 颜色`}
+                onChange={(event) => onChangeAnnotationColor(option.value, event.target.value.toUpperCase())}
+              />
+              <span className="annotation-color-hint">仅接受 #RRGGBB；当前设置会立即影响 Workspace 内联高亮。</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1402,6 +1491,7 @@ function WorkspaceView({
   isSubmitting,
   workspaceError,
   sourceTarget,
+  annotationColors,
   onClearSourceTarget,
   onRefresh,
   onLoadPack,
@@ -1437,6 +1527,7 @@ function WorkspaceView({
   isSubmitting: boolean;
   workspaceError: string | null;
   sourceTarget: SourceTarget | null;
+  annotationColors: AnnotationColorMap;
   onClearSourceTarget: () => void;
   onRefresh: () => void;
   onLoadPack: (packId: string) => void;
@@ -1458,6 +1549,8 @@ function WorkspaceView({
   const [draftSelectedText, setDraftSelectedText] = useState("");
   const [draftNote, setDraftNote] = useState("");
   const [draftError, setDraftError] = useState<string | null>(null);
+  const [annotationMenu, setAnnotationMenu] = useState<{ x: number; y: number; paragraphId: string; selection: ParagraphSelection } | null>(null);
+  const [inlineDetailAnnotations, setInlineDetailAnnotations] = useState<ReadingAnnotation[] | null>(null);
 
   useEffect(() => {
     const firstParagraphId = currentPassage?.paragraphs[0]?.paragraph_id ?? "";
@@ -1504,6 +1597,39 @@ function WorkspaceView({
     }
 
     setDraftError("请先在文章中选中一段文字。");
+  }
+
+  useEffect(() => {
+    function closeMenu(event: KeyboardEvent) {
+      if (event.key === "Escape") setAnnotationMenu(null);
+    }
+    window.addEventListener("keydown", closeMenu);
+    return () => window.removeEventListener("keydown", closeMenu);
+  }, []);
+
+  useEffect(() => {
+    setAnnotationMenu(null);
+    setInlineDetailAnnotations(null);
+    window.getSelection()?.removeAllRanges();
+  }, [pack.pack_id, currentPassage?.passage_id]);
+
+  async function createAnnotationFromMenu(annotationType: AnnotationType) {
+    if (!annotationMenu || !currentPassage) return;
+    const created = await onCreateAnnotation({
+      pack_id: pack.pack_id,
+      passage_id: currentPassage.passage_id,
+      paragraph_id: annotationMenu.paragraphId,
+      question_id: null,
+      annotation_type: annotationType,
+      selected_text: annotationMenu.selection.selectedText,
+      start_offset: annotationMenu.selection.startOffset,
+      end_offset: annotationMenu.selection.endOffset,
+      note: null
+    });
+    if (created) {
+      setAnnotationMenu(null);
+      window.getSelection()?.removeAllRanges();
+    }
   }
 
   useEffect(() => {
@@ -1586,6 +1712,27 @@ function WorkspaceView({
         </div>
       )}
 
+      {annotationMenu && (
+        <div className="annotation-context-menu" style={{ left: annotationMenu.x, top: annotationMenu.y }} role="menu" aria-label="选择标注类型">
+          {annotationTypeOptions.map((option) => (
+            <button key={option.value} type="button" role="menuitem" onClick={() => void createAnnotationFromMenu(option.value)}>{option.label}</button>
+          ))}
+        </div>
+      )}
+      {inlineDetailAnnotations && (
+        <div className="inline-annotation-detail">
+          <div><strong>原文标注</strong><button type="button" className="text-action" onClick={() => setInlineDetailAnnotations(null)}>关闭</button></div>
+          {inlineDetailAnnotations.map((annotation) => (
+            <div key={annotation.annotation_id}>
+              <span className="annotation-type-pill">{getAnnotationTypeLabel(annotation.annotation_type)}</span>
+              <strong>{annotation.selected_text}</strong>
+              {annotation.note && <p>{annotation.note}</p>}
+              <button type="button" className="danger-action" disabled={deletingAnnotationId === annotation.annotation_id} onClick={() => void onDeleteAnnotation(annotation.annotation_id)}>{deletingAnnotationId === annotation.annotation_id ? "删除中……" : "删除标注"}</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {isPackLoading ? (
         <div className="loading-card">正在打开这篇训练材料……</div>
       ) : (
@@ -1621,13 +1768,23 @@ function WorkspaceView({
           </div>
           <div className="paragraphs">
             {currentPassage?.paragraphs.map((paragraph) => (
-              <p
+              <InlineAnnotatedParagraph
                 key={paragraph.paragraph_id}
-                id={`workspace-paragraph-${paragraph.paragraph_id}`}
-                className={currentSourceTarget?.sourceParagraphId === paragraph.paragraph_id ? "workspace-paragraph highlighted" : "workspace-paragraph"}
-              >
-                <span>{paragraph.order}</span>{paragraph.text}
-              </p>
+                paragraphId={paragraph.paragraph_id}
+                order={paragraph.order}
+                text={paragraph.text}
+                annotations={currentPassageAnnotations.filter((annotation) => annotation.paragraph_id === paragraph.paragraph_id)}
+                focusedParagraphId={currentSourceTarget?.sourceParagraphId}
+                focusedAnnotationId={currentSourceTarget?.sourceAnnotationId}
+                annotationColors={annotationColors}
+                onSelectionContextMenu={(event, selection) => {
+                  if (isUsingFallback || isAnnotationSaving) return;
+                  event.preventDefault();
+                  setInlineDetailAnnotations(null);
+                  setAnnotationMenu({ x: event.clientX, y: event.clientY, paragraphId: paragraph.paragraph_id, selection });
+                }}
+                onOpenAnnotations={setInlineDetailAnnotations}
+              />
             ))}
           </div>
         </article>

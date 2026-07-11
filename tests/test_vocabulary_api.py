@@ -53,12 +53,12 @@ def create_annotation(client: TestClient) -> dict:
         "passage_id": "passage-attempt",
         "paragraph_id": "para-attempt-1",
         "question_id": "q-attempt-1",
-        "annotation_type": "vocabulary",
+        "annotation_type": "answer_evidence",
         "selected_text": "window",
         "note": "annotation source"
     })
     assert response.status_code == 200
-    return response.json()
+    return response.json()["annotation"]
 
 
 def create_vocabulary(client: TestClient, **overrides: str | None) -> dict:
@@ -156,14 +156,14 @@ def test_patch_rejects_source_annotation_id_used_by_another_vocabulary_item(clie
         "passage_id": "passage-attempt",
         "paragraph_id": "para-attempt-1",
         "question_id": "q-attempt-1",
-        "annotation_type": "vocabulary",
+        "annotation_type": "answer_evidence",
         "selected_text": "desk",
         "note": "second annotation source"
     })
     assert annotation_two.status_code == 200
 
     first = create_vocabulary(client, word="window", source_annotation_id=annotation_one["annotation_id"])
-    second = create_vocabulary(client, word="desk", source_annotation_id=annotation_two.json()["annotation_id"])
+    second = create_vocabulary(client, word="desk", source_annotation_id=annotation_two.json()["annotation"]["annotation_id"])
 
     response = client.patch(
         f"/api/vocabulary/{second['vocab_id']}",

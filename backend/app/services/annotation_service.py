@@ -5,6 +5,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from backend.app import models, schemas
+from backend.app.services import sentence_service, vocabulary_service
 
 VALID_ANNOTATION_TYPES = {
     "answer_evidence",
@@ -21,7 +22,7 @@ class AnnotationError(Exception):
         super().__init__(detail)
 
 
-def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas.AnnotationOut:
+def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas.AnnotationCreateResult:
     pack_id = payload.pack_id.strip()
     passage_id = payload.passage_id.strip()
     paragraph_id = payload.paragraph_id.strip()
@@ -93,10 +94,51 @@ def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas
         end_offset=end_offset,
         note=note,
     )
-    db.add(annotation)
-    db.commit()
+    created_vocabulary_item = None
+    created_sentence_item = None
+    try:
+        db.add(annotation)
+        db.flush()
+        if annotation_type == "vocabulary":
+            created_vocabulary_item = vocabulary_service.create_vocabulary_item_no_commit(db, schemas.VocabularyItemCreate(
+                word=selected_text,
+                source_sentence=paragraph.text,
+                source_pack_id=pack.pack_id,
+                source_passage_id=passage.passage_id,
+                source_paragraph_id=paragraph.paragraph_id,
+                source_annotation_id=annotation.annotation_id,
+            ))
+        elif annotation_type == "difficult_sentence":
+            created_sentence_item = sentence_service.create_sentence_item_no_commit(db, schemas.SentenceItemCreate(
+                sentence_text=selected_text,
+                source_pack_id=pack.pack_id,
+                source_passage_id=passage.passage_id,
+                source_paragraph_id=paragraph.paragraph_id,
+                source_annotation_id=annotation.annotation_id,
+            ))
+        db.commit()
+    except (vocabulary_service.VocabularyError, sentence_service.SentenceError) as exc:
+        db.rollback()
+        raise AnnotationError(exc.status_code, exc.detail) from exc
+    except Exception:
+        db.rollback()
+        raise
+
     db.refresh(annotation)
-    return _to_annotation_out(annotation)
+    created_vocabulary_item_out = None
+    created_sentence_item_out = None
+    if created_vocabulary_item is not None:
+        db.refresh(created_vocabulary_item)
+        created_vocabulary_item_out = vocabulary_service._to_vocabulary_out(created_vocabulary_item)
+    if created_sentence_item is not None:
+        db.refresh(created_sentence_item)
+        created_sentence_item_out = sentence_service._to_sentence_out(created_sentence_item)
+
+    return schemas.AnnotationCreateResult(
+        annotation=_to_annotation_out(annotation),
+        created_vocabulary_item=created_vocabulary_item_out,
+        created_sentence_item=created_sentence_item_out,
+    )
 
 
 def list_annotations(db: Session, pack_id: str) -> list[schemas.AnnotationOut]:
@@ -116,8 +158,14 @@ def delete_annotation(db: Session, annotation_id: str) -> schemas.AnnotationDele
     if annotation is None:
         raise AnnotationError(404, f"Annotation not found: {annotation_id}")
 
-    db.delete(annotation)
-    db.commit()
+    try:
+        db.query(models.VocabularyItem).filter(models.VocabularyItem.source_annotation_id == annotation_id).update({models.VocabularyItem.source_annotation_id: None}, synchronize_session=False)
+        db.query(models.SentenceItem).filter(models.SentenceItem.source_annotation_id == annotation_id).update({models.SentenceItem.source_annotation_id: None}, synchronize_session=False)
+        db.delete(annotation)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return schemas.AnnotationDeleteResponse(deleted=True, annotation_id=annotation_id)
 
 
