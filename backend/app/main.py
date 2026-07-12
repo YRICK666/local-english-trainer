@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.app import schemas
-from backend.app.db import get_db, init_db
+from backend.app.db import get_db, get_runtime_config, init_db
 from backend.app.services import annotation_service, practice_attempt_service, reading_pack_service, sentence_service, vocabulary_service
 
 app = FastAPI(title="local-english-trainer API")
@@ -15,10 +15,16 @@ def startup() -> None:
     init_db()
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
-
+@app.get("/health", response_model=schemas.HealthResponse)
+def health() -> schemas.HealthResponse:
+    config = get_runtime_config()
+    return schemas.HealthResponse(
+        status="ok",
+        app_version=config.app_version,
+        api_protocol_version=config.api_protocol_version,
+        schema_version=config.schema_version,
+        run_mode=config.run_mode,
+    )
 
 @app.post("/api/import/reading-pack/validate", response_model=schemas.ImportValidationResult)
 def validate_reading_pack(payload: dict[str, Any]) -> schemas.ImportValidationResult:

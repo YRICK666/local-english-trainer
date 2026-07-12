@@ -4,6 +4,13 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class HealthResponse(BaseModel):
+    status: str
+    app_version: str
+    api_protocol_version: int
+    schema_version: int
+    run_mode: str
+
 class ImportValidationStats(BaseModel):
     passage_count: int = 0
     paragraph_count: int = 0

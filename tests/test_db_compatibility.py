@@ -5,6 +5,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app import db as app_db
 from backend.app import models  # noqa: F401
+from backend.app.runtime_config import RUN_MODE_TEST, build_runtime_config
 
 def _make_memory_engine():
     return create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -128,3 +129,32 @@ def test_new_database_create_all_has_offset_columns() -> None:
         assert "end_offset" in columns
     finally:
         engine.dispose()
+
+def test_configure_database_can_rebind_memory_engine_multiple_times() -> None:
+    original_config = app_db.get_runtime_config()
+    try:
+        app_db.configure_database("sqlite:///:memory:")
+        first_engine = app_db.engine
+        app_db.configure_database("sqlite:///:memory:")
+        assert app_db.engine is not first_engine
+        app_db.init_db()
+        columns = _table_columns(app_db.engine)
+        assert "start_offset" in columns
+        assert "end_offset" in columns
+    finally:
+        app_db.configure_runtime_database(original_config, create_parent=True)
+
+
+def test_configure_runtime_database_accepts_test_memory_config() -> None:
+    original_config = app_db.get_runtime_config()
+    try:
+        config = build_runtime_config(run_mode=RUN_MODE_TEST, database_url="sqlite:///:memory:", environ={})
+        app_db.configure_runtime_database(config)
+        assert app_db.get_runtime_config().run_mode == RUN_MODE_TEST
+        assert app_db.DATABASE_URL == "sqlite:///:memory:"
+        app_db.init_db()
+        columns = _table_columns(app_db.engine)
+        assert "start_offset" in columns
+        assert "end_offset" in columns
+    finally:
+        app_db.configure_runtime_database(original_config, create_parent=True)

@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -33,3 +33,12 @@ frontend/*.log
 # OS
 .DS_Store
 Thumbs.db
+# Desktop runtime artifacts
+backups/
+imports/
+exports/
+logs/
+cache/
+settings.json
+LocalEnglishTrainer/
+.runtime-test-tmp/
