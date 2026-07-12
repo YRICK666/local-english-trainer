@@ -4,6 +4,22 @@
 - 本文记录最终 Windows 桌面架构的基础协议与后续实施边界。
 - 本轮尚未创建 Tauri 工程、PyInstaller sidecar、NSIS 安装器，也未迁移真实数据库。
 
+
+## P0 Dependency Reproducibility
+
+本轮建立 Windows 桌面成品的依赖与工具链基线，仍处于 `Foundation in progress`：
+
+- Node 固定为 `24.12.0`，npm 固定为 `11.6.2`。
+- 前端依赖使用精确版本，并提交正式 `frontend/package-lock.json`。
+- 正式前端构建使用 `npm ci` 后运行 `npm run build:web`，输出仍为 `frontend/build-output/`。
+- Python 桌面构建基线使用独立 CPython `3.11.5` 和仓库内隔离 `.venv-desktop-build`，不得使用默认 Conda Python 生成 lock。
+- Python 依赖分为 `requirements/runtime.in`、`requirements/dev.in`、`requirements/desktop.in`，并分别生成带 hash 的 `.lock` 文件。
+- `pip-tools` 仅安装在隔离 venv 中作为锁定工具，不属于应用 runtime/dev/desktop 直接依赖。
+- `version.json` 是跨语言应用版本、API protocol version 和 schema version 的单一人工编辑来源。
+- 未来创建 Tauri 工程后，`Cargo.lock` 必须作为正式源文件提交。
+- 本轮尚未创建 Tauri 工程、PyInstaller sidecar 或安装器，也未触碰真实数据库。
+- Packaging 工具链仍需后续验证 Rust、MSVC/Windows SDK、NSIS 和签名工具。
+
 ## Final Stack
 
 最终桌面形态采用：
@@ -51,13 +67,13 @@
 
 ## Version Protocol
 
-Python 侧版本权威来源为 `backend/app/version.py`：
+跨语言版本权威来源为根目录 `version.json`，通过 `scripts/sync_version.py` 同步到 `backend/app/version.py` 和 `frontend/package.json`：
 
 - `APP_VERSION`
 - `API_PROTOCOL_VERSION`
 - `SCHEMA_VERSION`
 
-`SCHEMA_VERSION` 表示应用期望的数据库 schema 版本。本轮只建立代码端协议，不创建 metadata 表，不写入现有数据库。后续 Data Safety 阶段再引入 metadata 表、迁移注册表和失败恢复流程。
+`SCHEMA_VERSION` 表示应用期望的数据库 schema 版本。本轮只建立代码端协议和跨语言版本同步，不创建 metadata 表，不写入现有数据库。后续 Data Safety 阶段再引入 metadata 表、迁移注册表和失败恢复流程。
 
 ## Sidecar Health Contract
 

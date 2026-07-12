@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 pytest_runtime_tmp/
 .venv/
+.venv-desktop-build/
+.venv-p0-verify/
 venv/
 
 # Local database and user data
@@ -21,6 +23,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/build-output/
 frontend/.vite/
+build/
+dist/
 
 # Logs
 *.log
