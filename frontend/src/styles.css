@@ -1341,3 +1341,52 @@ select {
 .inline-annotation-detail { display: grid; gap: 10px; margin: 12px 0; padding: 12px; border: 1px solid #d7ddd4; border-radius: 8px; background: #fffefb; }
 .inline-annotation-detail > div { display: grid; gap: 6px; }
 .inline-annotation-detail > div:first-child { display: flex; justify-content: space-between; align-items: center; }
+.question-card.active {
+  border-bottom-color: #c7d6c1;
+  background: #fbfdf8;
+}
+
+.annotation-question-confirm {
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 6px;
+}
+
+.annotation-question-confirm p {
+  max-height: 74px;
+  margin: 4px 0 0;
+  overflow: auto;
+  color: #4e5a50;
+  line-height: 1.5;
+}
+
+.annotation-question-confirm label {
+  display: grid;
+  gap: 6px;
+}
+
+.annotation-question-confirm label span {
+  color: #5f6d61;
+  font-size: 12px;
+}
+
+.annotation-question-confirm select {
+  width: 100%;
+  min-width: 0;
+}
+
+.annotation-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.annotation-menu-error {
+  padding: 8px 10px;
+  border: 1px solid #e0c5bd;
+  border-radius: 7px;
+  background: #fcf2ef;
+  color: #8a3d32;
+  font-size: 13px;
+}

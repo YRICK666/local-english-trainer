@@ -67,6 +67,16 @@ function getAnnotationTypeLabel(type: AnnotationType) {
   return annotationTypeOptions.find((item) => item.value === type)?.label ?? type;
 }
 
+function requiresQuestionId(type: AnnotationType) {
+  return type === "answer_evidence" || type === "synonym_replacement";
+}
+
+function formatQuestionLabel(question: ReadingPack["questions"][number]) {
+  const prefix = question.question_no ? `第 ${question.question_no} 题` : question.question_id;
+  const stemPreview = question.stem.length > 42 ? `${question.stem.slice(0, 42)}...` : question.stem;
+  return `${prefix} · ${stemPreview}`;
+}
+
 function getParagraphLabel(order?: number) {
   return order ? `第 ${order} 段` : "段落";
 }
@@ -1550,21 +1560,41 @@ function WorkspaceView({
   const [draftNote, setDraftNote] = useState("");
   const [draftError, setDraftError] = useState<string | null>(null);
   const [annotationMenu, setAnnotationMenu] = useState<{ x: number; y: number; paragraphId: string; selection: ParagraphSelection } | null>(null);
+  const [pendingQuestionAnnotation, setPendingQuestionAnnotation] = useState<{ annotationType: AnnotationType; questionId: string } | null>(null);
+  const [annotationMenuError, setAnnotationMenuError] = useState<string | null>(null);
+  const [activeQuestionId, setActiveQuestionId] = useState(currentPassageQuestions[0]?.question_id ?? "");
   const [inlineDetailAnnotations, setInlineDetailAnnotations] = useState<ReadingAnnotation[] | null>(null);
 
   useEffect(() => {
     const firstParagraphId = currentPassage?.paragraphs[0]?.paragraph_id ?? "";
+    const firstQuestionId = currentPassageQuestions[0]?.question_id ?? "";
     setDraftParagraphId((prev) => currentPassage?.paragraphs.some((paragraph) => paragraph.paragraph_id === prev) ? prev : firstParagraphId);
-    setDraftQuestionId((prev) => currentPassageQuestions.some((question) => question.question_id === prev) ? prev : "");
+    setDraftQuestionId((prev) => {
+      if (currentPassageQuestions.some((question) => question.question_id === prev)) return prev;
+      return requiresQuestionId(draftType) ? firstQuestionId : "";
+    });
     setDraftError(null);
-  }, [currentPassage?.passage_id, currentPassage?.paragraphs, currentPassageQuestions]);
+  }, [currentPassage?.passage_id, currentPassage?.paragraphs, currentPassageQuestions, draftType]);
+
+  useEffect(() => {
+    setActiveQuestionId((prev) => currentPassageQuestions.some((question) => question.question_id === prev) ? prev : currentPassageQuestions[0]?.question_id ?? "");
+  }, [currentPassage?.passage_id, currentPassageQuestions]);
 
   const paragraphLabelMap = useMemo(() => new Map(
     (currentPassage?.paragraphs ?? []).map((paragraph) => [paragraph.paragraph_id, getParagraphLabel(paragraph.order)])
   ), [currentPassage?.paragraphs]);
   const questionLabelMap = useMemo(() => new Map(
-    currentPassageQuestions.map((question) => [question.question_id, question.question_no || question.question_id])
+    currentPassageQuestions.map((question) => [question.question_id, formatQuestionLabel(question)])
   ), [currentPassageQuestions]);
+  const activeQuestion = currentPassageQuestions.find((question) => question.question_id === activeQuestionId);
+  const defaultQuestionId = activeQuestion?.question_id ?? currentPassageQuestions[0]?.question_id ?? "";
+
+  function getAnnotationQuestionText(annotation: ReadingAnnotation) {
+    if (annotation.question_id) {
+      return questionLabelMap.get(annotation.question_id) ?? annotation.question_id;
+    }
+    return requiresQuestionId(annotation.annotation_type) ? "未关联题目" : null;
+  }
   const currentSourceTarget = sourceTarget
     && sourceTarget.sourcePackId === pack.pack_id
     && sourceTarget.sourcePassageId === currentPassage?.passage_id
@@ -1599,9 +1629,15 @@ function WorkspaceView({
     setDraftError("请先在文章中选中一段文字。");
   }
 
+  function closeAnnotationMenu() {
+    setAnnotationMenu(null);
+    setPendingQuestionAnnotation(null);
+    setAnnotationMenuError(null);
+  }
+
   useEffect(() => {
     function closeMenu(event: KeyboardEvent) {
-      if (event.key === "Escape") setAnnotationMenu(null);
+      if (event.key === "Escape") closeAnnotationMenu();
     }
     window.addEventListener("keydown", closeMenu);
     return () => window.removeEventListener("keydown", closeMenu);
@@ -1609,17 +1645,35 @@ function WorkspaceView({
 
   useEffect(() => {
     setAnnotationMenu(null);
+    setPendingQuestionAnnotation(null);
+    setAnnotationMenuError(null);
     setInlineDetailAnnotations(null);
     window.getSelection()?.removeAllRanges();
   }, [pack.pack_id, currentPassage?.passage_id]);
 
-  async function createAnnotationFromMenu(annotationType: AnnotationType) {
+  function beginAnnotationFromMenu(annotationType: AnnotationType) {
+    if (!annotationMenu) return;
+    setAnnotationMenuError(null);
+    if (requiresQuestionId(annotationType)) {
+      if (!defaultQuestionId) {
+        setPendingQuestionAnnotation({ annotationType, questionId: "" });
+        setAnnotationMenuError("当前 passage 没有关联题目，无法保存答案依据或同义替换。");
+        return;
+      }
+      setPendingQuestionAnnotation({ annotationType, questionId: defaultQuestionId });
+      return;
+    }
+
+    void createAnnotationFromMenu(annotationType, null);
+  }
+
+  async function createAnnotationFromMenu(annotationType: AnnotationType, questionId: string | null) {
     if (!annotationMenu || !currentPassage) return;
     const created = await onCreateAnnotation({
       pack_id: pack.pack_id,
       passage_id: currentPassage.passage_id,
       paragraph_id: annotationMenu.paragraphId,
-      question_id: null,
+      question_id: questionId,
       annotation_type: annotationType,
       selected_text: annotationMenu.selection.selectedText,
       start_offset: annotationMenu.selection.startOffset,
@@ -1627,11 +1681,19 @@ function WorkspaceView({
       note: null
     });
     if (created) {
-      setAnnotationMenu(null);
+      closeAnnotationMenu();
       window.getSelection()?.removeAllRanges();
     }
   }
 
+  async function savePendingQuestionAnnotation() {
+    if (!pendingQuestionAnnotation) return;
+    if (!pendingQuestionAnnotation.questionId) {
+      setAnnotationMenuError("请先选择当前 passage 的题目。");
+      return;
+    }
+    await createAnnotationFromMenu(pendingQuestionAnnotation.annotationType, pendingQuestionAnnotation.questionId);
+  }
   useEffect(() => {
     if (!currentSourceTarget) {
       return;
@@ -1666,6 +1728,10 @@ function WorkspaceView({
       return;
     }
 
+    if (requiresQuestionId(draftType) && !draftQuestionId) {
+      setDraftError("答案依据和同义替换必须关联当前 passage 的题目。");
+      return;
+    }
     setDraftError(null);
     const created = await onCreateAnnotation({
       pack_id: pack.pack_id,
@@ -1680,7 +1746,7 @@ function WorkspaceView({
     if (created) {
       setDraftSelectedText("");
       setDraftNote("");
-      setDraftQuestionId("");
+      setDraftQuestionId(requiresQuestionId(draftType) ? defaultQuestionId : "");
     }
   }
 
@@ -1714,11 +1780,40 @@ function WorkspaceView({
 
       {annotationMenu && (
         <div className="annotation-context-menu" style={{ left: annotationMenu.x, top: annotationMenu.y }} role="menu" aria-label="选择标注类型">
-          {annotationTypeOptions.map((option) => (
-            <button key={option.value} type="button" role="menuitem" onClick={() => void createAnnotationFromMenu(option.value)}>{option.label}</button>
+          {pendingQuestionAnnotation ? (
+            <div className="annotation-question-confirm">
+              <div>
+                <strong>{getAnnotationTypeLabel(pendingQuestionAnnotation.annotationType)}</strong>
+                <p>{annotationMenu.selection.selectedText}</p>
+              </div>
+              <label>
+                <span>关联题目</span>
+                <select
+                  value={pendingQuestionAnnotation.questionId}
+                  onChange={(event) => setPendingQuestionAnnotation((prev) => prev ? { ...prev, questionId: event.target.value } : prev)}
+                  disabled={currentPassageQuestions.length === 0 || isAnnotationSaving}
+                >
+                  {currentPassageQuestions.length === 0 ? (
+                    <option value="">当前 passage 没有关联题目</option>
+                  ) : currentPassageQuestions.map((question) => (
+                    <option key={question.question_id} value={question.question_id}>{formatQuestionLabel(question)}</option>
+                  ))}
+                </select>
+              </label>
+              {annotationMenuError && <div className="annotation-menu-error">{annotationMenuError}</div>}
+              <div className="annotation-confirm-actions">
+                <button type="button" className="primary-action" disabled={isAnnotationSaving || !pendingQuestionAnnotation.questionId} onClick={() => void savePendingQuestionAnnotation()}>
+                  {isAnnotationSaving ? "保存中……" : "保存"}
+                </button>
+                <button type="button" className="secondary-action" onClick={closeAnnotationMenu} disabled={isAnnotationSaving}>取消</button>
+              </div>
+            </div>
+          ) : annotationTypeOptions.map((option) => (
+            <button key={option.value} type="button" role="menuitem" onClick={() => beginAnnotationFromMenu(option.value)}>{option.label}</button>
           ))}
         </div>
       )}
+
       {inlineDetailAnnotations && (
         <div className="inline-annotation-detail">
           <div><strong>原文标注</strong><button type="button" className="text-action" onClick={() => setInlineDetailAnnotations(null)}>关闭</button></div>
@@ -1726,6 +1821,7 @@ function WorkspaceView({
             <div key={annotation.annotation_id}>
               <span className="annotation-type-pill">{getAnnotationTypeLabel(annotation.annotation_type)}</span>
               <strong>{annotation.selected_text}</strong>
+              {getAnnotationQuestionText(annotation) && <small>题目 {getAnnotationQuestionText(annotation)}</small>}
               {annotation.note && <p>{annotation.note}</p>}
               <button type="button" className="danger-action" disabled={deletingAnnotationId === annotation.annotation_id} onClick={() => void onDeleteAnnotation(annotation.annotation_id)}>{deletingAnnotationId === annotation.annotation_id ? "删除中……" : "删除标注"}</button>
             </div>
@@ -1781,6 +1877,8 @@ function WorkspaceView({
                   if (isUsingFallback || isAnnotationSaving) return;
                   event.preventDefault();
                   setInlineDetailAnnotations(null);
+                  setPendingQuestionAnnotation(null);
+                  setAnnotationMenuError(null);
                   setAnnotationMenu({ x: event.clientX, y: event.clientY, paragraphId: paragraph.paragraph_id, selection });
                 }}
                 onOpenAnnotations={setInlineDetailAnnotations}
@@ -1816,7 +1914,7 @@ function WorkspaceView({
 
           <div className="question-list">
             {currentPassageQuestions.map((question) => (
-              <div className="question-card" key={question.question_id}>
+              <div className={activeQuestionId === question.question_id ? "question-card active" : "question-card"} key={question.question_id} onClick={() => setActiveQuestionId(question.question_id)}>
                 <h3>{question.question_no || question.question_id}. {question.stem}</h3>
                 <div className="options">
                   {question.options.map((option) => (
@@ -1824,7 +1922,10 @@ function WorkspaceView({
                       className={selectedAnswers[question.question_id] === option.label ? "option-button selected" : "option-button"}
                       key={option.label}
                       type="button"
-                      onClick={() => onSelectAnswer(question.question_id, option.label)}
+                      onClick={() => {
+                        setActiveQuestionId(question.question_id);
+                        onSelectAnswer(question.question_id, option.label);
+                      }}
                     >
                       <strong>{option.label}</strong><span>{option.text}</span>
                     </button>
@@ -1851,7 +1952,11 @@ function WorkspaceView({
               <div className="annotation-grid">
                 <label className="annotation-field">
                   <span>标注类型</span>
-                  <select value={draftType} onChange={(event) => setDraftType(event.target.value as AnnotationType)} disabled={isUsingFallback || isAnnotationSaving}>
+                  <select value={draftType} onChange={(event) => {
+                    const nextType = event.target.value as AnnotationType;
+                    setDraftType(nextType);
+                    if (requiresQuestionId(nextType) && !draftQuestionId) setDraftQuestionId(currentPassageQuestions[0]?.question_id ?? "");
+                  }} disabled={isUsingFallback || isAnnotationSaving}>
                     {annotationTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </label>
@@ -1864,8 +1969,8 @@ function WorkspaceView({
                 <label className="annotation-field">
                   <span>关联题目</span>
                   <select value={draftQuestionId} onChange={(event) => setDraftQuestionId(event.target.value)} disabled={isUsingFallback || isAnnotationSaving}>
-                    <option value="">不关联题目</option>
-                    {currentPassageQuestions.map((question) => <option key={question.question_id} value={question.question_id}>{question.question_no || question.question_id}</option>)}
+                    <option value="" disabled={requiresQuestionId(draftType)}>{requiresQuestionId(draftType) ? "必须关联题目" : "不关联题目"}</option>
+                    {currentPassageQuestions.map((question) => <option key={question.question_id} value={question.question_id}>{formatQuestionLabel(question)}</option>)}
                   </select>
                 </label>
               </div>
@@ -1918,7 +2023,7 @@ function WorkspaceView({
                   <div className="annotation-meta">
                     <span className="annotation-type-pill">{getAnnotationTypeLabel(annotation.annotation_type)}</span>
                     <span>{paragraphLabelMap.get(annotation.paragraph_id) ?? annotation.paragraph_id}</span>
-                    {annotation.question_id && <span>题目 {questionLabelMap.get(annotation.question_id) ?? annotation.question_id}</span>}
+                    {getAnnotationQuestionText(annotation) && <span>题目 {getAnnotationQuestionText(annotation)}</span>}
                     <span>{formatDate(annotation.created_at ?? undefined)}</span>
                   </div>
                   <strong>{annotation.selected_text}</strong>

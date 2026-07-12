@@ -14,6 +14,8 @@ VALID_ANNOTATION_TYPES = {
     "difficult_sentence",
 }
 
+QUESTION_REQUIRED_ANNOTATION_TYPES = {"answer_evidence", "synonym_replacement"}
+
 
 class AnnotationError(Exception):
     def __init__(self, status_code: int, detail: str) -> None:
@@ -26,7 +28,7 @@ def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas
     pack_id = payload.pack_id.strip()
     passage_id = payload.passage_id.strip()
     paragraph_id = payload.paragraph_id.strip()
-    question_id = payload.question_id.strip() if payload.question_id else None
+    question_id = payload.question_id.strip() if payload.question_id and payload.question_id.strip() else None
     annotation_type = payload.annotation_type.strip()
     selected_text = payload.selected_text
     start_offset = payload.start_offset
@@ -35,6 +37,8 @@ def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas
 
     if annotation_type not in VALID_ANNOTATION_TYPES:
         raise AnnotationError(400, f"annotation_type is invalid: {annotation_type}")
+    if annotation_type in QUESTION_REQUIRED_ANNOTATION_TYPES and question_id is None:
+        raise AnnotationError(400, f"question_id is required for {annotation_type} annotations")
     if (start_offset is None) != (end_offset is None):
         raise AnnotationError(400, "start_offset and end_offset must both be provided or both be null")
     if start_offset is None and end_offset is None and not selected_text.strip():
@@ -66,15 +70,20 @@ def create_annotation(db: Session, payload: schemas.AnnotationCreate) -> schemas
         ).one_or_none()
         if question is None:
             raise AnnotationError(400, f"question_id does not belong to pack {pack_id}: {question_id}")
+        if question.passage_db_id != passage.id:
+            raise AnnotationError(400, f"question_id does not belong to passage {passage_id}: {question_id}")
 
     if start_offset is not None and end_offset is not None:
         _validate_offsets(paragraph.text, selected_text, start_offset, end_offset)
-        conflict = db.query(models.ReadingAnnotation).filter(
+        conflict_query = db.query(models.ReadingAnnotation).filter(
             models.ReadingAnnotation.paragraph_db_id == paragraph.id,
             models.ReadingAnnotation.annotation_type == annotation_type,
             models.ReadingAnnotation.start_offset == start_offset,
             models.ReadingAnnotation.end_offset == end_offset,
-        ).one_or_none()
+        )
+        if annotation_type in QUESTION_REQUIRED_ANNOTATION_TYPES:
+            conflict_query = conflict_query.filter(models.ReadingAnnotation.question_db_id == question.id)
+        conflict = conflict_query.one_or_none()
         if conflict is not None:
             raise AnnotationError(409, "annotation range already exists for this annotation_type in the same paragraph")
 
