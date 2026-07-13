@@ -61,6 +61,18 @@ def test_runtime_configuration_uses_only_explicit_temporary_user_root(tmp_path: 
     assert not (tmp_path / "user-data").exists()
 
 
+def test_invalid_storage_root_does_not_create_ready_file_or_start_listener(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    invalid_root = tmp_path / "root-file"
+    invalid_root.write_text("not a directory", encoding="utf-8")
+    config = desktop_sidecar.load_sidecar_config(
+        sidecar_environment(tmp_path, **{desktop_sidecar.ENV_USER_DATA_ROOT: str(invalid_root)})
+    )
+    monkeypatch.setattr(desktop_sidecar, "create_loopback_socket", lambda _port: pytest.fail("listener must not start"))
+
+    assert desktop_sidecar.run_sidecar(config) == 1
+    assert not config.ready_file.exists()
+
+
 def test_loopback_socket_owns_random_port_without_reuse_window() -> None:
     first = desktop_sidecar.create_loopback_socket(0)
     second = desktop_sidecar.create_loopback_socket(0)

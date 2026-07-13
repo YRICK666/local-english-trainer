@@ -40,7 +40,7 @@
 
 - `development`：保留当前开发体验，默认数据库仍是仓库下的 `data/local_english_trainer.sqlite3`。
 - `test`：必须显式提供测试数据库 URL 或临时 user data root，禁止回退到开发数据库。
-- `desktop_production`：使用 `%LOCALAPPDATA%\LocalEnglishTrainer\`，不得依赖当前工作目录。
+- `desktop_production`：sidecar 必须从 `LOCAL_ENGLISH_TRAINER_USER_DATA_ROOT` 接收明确的数据根目录，不得依赖当前工作目录或自动读取 bootstrap。未来 Tauri 只在首次启动时读取 bootstrap 并把用户选定目录传给 sidecar。
 
 配置来源优先级：
 
@@ -50,21 +50,22 @@
 
 ## User Data Layout
 
-桌面正式用户数据目录：
+桌面正式用户数据目录由用户在首次启动时明确选择，例如 `G:\LocalEnglishTrainerData`：
 
 ```text
-%LOCALAPPDATA%\LocalEnglishTrainer\
+G:\LocalEnglishTrainerData\
   data\
+    local_english_trainer.sqlite3
   backups\
   imports\
   exports\
   logs\
   cache\
-  settings.json
 ```
 
-安装目录与用户数据目录必须分离。安装器、sidecar 可执行文件和静态前端资源不应写入用户学习数据；SQLite、备份、导入导出和日志属于 user data root。
+`%LOCALAPPDATA%\LocalEnglishTrainer\bootstrap.json` 是唯一允许留在 C 盘的轻量指针，UTF-8 内容严格为 `config_version` 和 `data_root`。它用临时文件加 `os.replace` 原子写入，不保存 token、端口、ready 文件、数据库内容或阅读内容。删除该配置只删除该 JSON，不删除用户数据目录。
 
+安装目录与用户数据目录必须分离。安装器、sidecar 可执行文件和静态前端资源不应写入用户学习数据；SQLite、备份、导入导出和日志属于 user data root。`backend.app.desktop_storage` 拒绝相对路径、普通文件、仓库源码根目录和仓库 `data` 目录；不自动选择磁盘或扫描旧数据库。
 ## Version Protocol
 
 跨语言版本权威来源为根目录 `version.json`，通过 `scripts/sync_version.py` 同步到 `backend/app/version.py` 和 `frontend/package.json`：
@@ -148,6 +149,13 @@ P1 adds the independently runnable Python sidecar while the overall desktop stat
 - Logs use a rotating UTF-8 file at `<user_data_root>\logs\sidecar.log`. P1 smoke tests use system temporary user-data roots only; no real learning database is migrated or read.
 - `desktop/sidecar/local_english_trainer_api.spec` builds a PyInstaller `onedir` sidecar without React static assets, user data, tests, or node modules. The executable has no independent console dependency.
 - Tauri, its shell configuration, and an installer still do not exist in this repository.
+
+## P1.5 External Data Root and Selected Database Migration
+
+- `DesktopStorageLayout` 固定外部数据根目录下的 `data`、`backups`、`imports`、`exports`、`logs`、`cache` 和 `data/local_english_trainer.sqlite3`，目录创建可重复执行。
+- sidecar 启动时先准备和验证这个布局，只有成功后才设置数据库环境、配置日志、绑定端口和写 ready JSON；无效根目录不会启动服务或生成 ready 文件。
+- `migrate_selected_database` 仅接受用户显式提供的绝对源 SQLite 文件和显式目标根目录。它以 SQLite 只读连接对源库执行 `PRAGMA integrity_check`，用 `sqlite3.Connection.backup` 写入目标 `data` 目录中的临时文件，再校验临时目标，并以 `os.replace` 原子替换正式目标。
+- 已存在的正式目标绝不覆盖；迁移失败会删除本轮临时文件，保留源数据库和既有目标。该流程不执行 schema upgrade、不搜索磁盘，也不把源路径写入普通运行日志。
 
 ### Desktop Packaging
 

@@ -166,13 +166,16 @@ def close_sidecar_logging(logger: logging.Logger) -> None:
 def run_sidecar(config: SidecarConfig) -> int:
     """Run the server after every desktop-only path has been configured."""
     from backend.app.desktop_security import wrap_desktop_app
-    from backend.app.runtime_config import ensure_user_directories
+    from backend.app.desktop_storage import DesktopStorageError, prepare_desktop_storage
 
-    prepare_runtime_environment(config)
-    ensure_user_directories(config.runtime_config)
-    logger = configure_sidecar_logging(config.runtime_config)
+    logger: logging.Logger | None = None
     listener: socket.socket | None = None
     try:
+        layout = prepare_desktop_storage(config.runtime_config.user_data_root)
+        if layout.database_path != config.runtime_config.database_path:
+            raise SidecarConfigError("desktop sidecar database layout is inconsistent")
+        prepare_runtime_environment(config)
+        logger = configure_sidecar_logging(config.runtime_config)
         remove_ready_file(config.ready_file)
         listener = create_loopback_socket(config.port)
         actual_port = int(listener.getsockname()[1])
@@ -229,15 +232,21 @@ def run_sidecar(config: SidecarConfig) -> int:
             logger.error("sidecar startup did not complete")
             return 1
         return 0
+    except (DesktopStorageError, SidecarConfigError) as exc:
+        if logger is not None:
+            logger.error("sidecar failed with %s", type(exc).__name__)
+        return 1
     except Exception as exc:
-        logger.error("sidecar failed with %s", type(exc).__name__)
+        if logger is not None:
+            logger.error("sidecar failed with %s", type(exc).__name__)
         return 1
     finally:
         remove_ready_file(config.ready_file)
         if listener is not None:
             listener.close()
-        logger.info("sidecar shutdown complete")
-        close_sidecar_logging(logger)
+        if logger is not None:
+            logger.info("sidecar shutdown complete")
+            close_sidecar_logging(logger)
 
 
 def main() -> int:
