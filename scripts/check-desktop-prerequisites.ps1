@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("P0", "Packaging")]
+    [ValidateSet("P0", "Sidecar", "Packaging")]
     [string]$Phase = "P0"
 )
 
@@ -143,6 +143,19 @@ try {
         if ($LASTEXITCODE -eq 0) { Add-Ready "sync_version.py --check" } else { Add-Failure "sync_version.py --check failed" }
     }
 
+    if ($Phase -eq "Sidecar") {
+        Test-FileExists "backend\desktop_sidecar.py" "backend/desktop_sidecar.py"
+        Test-FileExists "desktop\sidecar\local_english_trainer_api.spec" "desktop sidecar spec"
+        Test-FileExists "scripts\build-sidecar.ps1" "sidecar build script"
+        Test-FileExists "scripts\smoke-test-sidecar.ps1" "sidecar smoke script"
+        $desktopLock = Join-Path $Root "requirements\desktop.lock"
+        if ((Test-Path -LiteralPath $desktopLock) -and (Select-String -Path $desktopLock -Pattern "(?m)^pyinstaller==" -Quiet)) {
+            Add-Ready "desktop.lock contains PyInstaller"
+        } else {
+            Add-Failure "desktop.lock must contain PyInstaller"
+        }
+    }
+
     if ($Phase -eq "Packaging") {
         Test-OptionalTool "rustc" "rustc" | Out-Null
         Test-OptionalTool "cargo" "cargo" | Out-Null
@@ -199,6 +212,6 @@ if ($SigningOnly.Count -gt 0) {
     foreach ($item in $SigningOnly | Select-Object -Unique) { Write-Host "  SIGNING $item" }
 }
 
-if ($Phase -eq "P0" -and $Failures.Count -gt 0) { exit 1 }
+if (($Phase -eq "P0" -or $Phase -eq "Sidecar") -and $Failures.Count -gt 0) { exit 1 }
 if ($Phase -eq "Packaging" -and $Missing.Count -gt 0) { exit 1 }
 exit 0

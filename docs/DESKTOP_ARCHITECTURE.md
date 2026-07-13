@@ -135,6 +135,20 @@
 
 ## Future Stages
 
+## P1 FastAPI Sidecar
+
+P1 adds the independently runnable Python sidecar while the overall desktop status remains `Foundation in progress`:
+
+- `backend.desktop_sidecar` accepts only `desktop_production` configuration from environment variables and requires an explicit user data root, startup token, and ready-file path.
+- It binds a pre-owned `127.0.0.1:0` socket and hands that socket directly to Uvicorn, so the reported port is OS-assigned without a find-then-bind race.
+- Every HTTP API request, including `/health`, requires `X-Local-English-Trainer-Token`. The token is checked with constant-time comparison, remains process-memory-only, and is not included in logs or ready JSON.
+- Browser origins are an empty allowlist by default; a future Tauri shell supplies explicit origins through `LOCAL_ENGLISH_TRAINER_ALLOWED_ORIGINS`.
+- After FastAPI startup completes, the sidecar atomically writes a ready JSON containing loopback host/port, PID, run mode, and the application/API/schema version handshake. It removes the file during shutdown.
+- `POST /desktop/shutdown` exists only in the sidecar security wrapper and asks Uvicorn to exit gracefully after returning its response.
+- Logs use a rotating UTF-8 file at `<user_data_root>\logs\sidecar.log`. P1 smoke tests use system temporary user-data roots only; no real learning database is migrated or read.
+- `desktop/sidecar/local_english_trainer_api.spec` builds a PyInstaller `onedir` sidecar without React static assets, user data, tests, or node modules. The executable has no independent console dependency.
+- Tauri, its shell configuration, and an installer still do not exist in this repository.
+
 ### Desktop Packaging
 
 - 创建 Tauri 2 工程。

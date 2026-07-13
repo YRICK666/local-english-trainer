@@ -5,6 +5,7 @@ __pycache__/
 pytest_runtime_tmp/
 .venv/
 .venv-desktop-build/
+.venv-sidecar-build/
 .venv-p0-verify/
 venv/
 
@@ -46,3 +47,6 @@ cache/
 settings.json
 LocalEnglishTrainer/
 .runtime-test-tmp/
+desktop-build/
+sidecar-ready-*.json
+sidecar-smoke-*/
