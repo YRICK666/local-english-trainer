@@ -21,5 +21,11 @@
         "resizable": true
       }
     ]
+  },
+  "bundle": {
+    "active": true,
+    "resources": {
+      "../desktop-build/tauri-resources/sidecar/local-english-trainer-api": "sidecar/local-english-trainer-api"
+    }
   }
 }
