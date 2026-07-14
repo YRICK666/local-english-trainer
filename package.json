@@ -1,0 +1,17 @@
+{
+  "name": "local-english-trainer-desktop-tools",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "tauri:dev": "tauri dev",
+    "tauri:build:debug": "tauri build --debug --no-bundle"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  },
+  "engines": {
+    "node": "24.12.0",
+    "npm": "11.6.2"
+  },
+  "packageManager": "npm@11.6.2"
+}

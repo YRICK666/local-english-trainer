@@ -1,4 +1,4 @@
-﻿# local-english-trainer
+# local-english-trainer
 
 本项目是一个本地英语学习系统，核心是：
 
@@ -102,3 +102,23 @@ npm run build
 - Anki 导出
 - 复杂复习算法
 - 大规模 UI 重构
+
+## Desktop P2 static shell
+
+P2 已完成最小 Tauri 2 静态桌面壳：Tauri 在真实交互式 Windows 会话中可启动现有 React/Vite UI；debug no-bundle 构建出的 exe 也可在没有 Vite 的情况下启动。
+
+执行 Cargo 或 Tauri 命令前，仅在当前 PowerShell 进程设置 `RUSTUP_HOME`、`CARGO_HOME` 和本地代理，加载 `G:\DevTools\VSBuildTools\Common7\Tools\Launch-VsDevShell.ps1`，并将 Windows SDK x64 bin 临时加入 `PATH`。
+
+开发模式：
+
+```powershell
+npm run tauri:dev -- --verbose --no-watch --exit-on-panic
+```
+
+debug no-bundle 构建：
+
+```powershell
+npm run tauri:build:debug
+```
+
+当前 P2 不启动 FastAPI 或 PyInstaller sidecar，不访问数据库，也不生成 NSIS/MSI 安装包。下一阶段是 P2.25/P2.5 前置设计：定义平台无关的数据访问边界，并规划 sidecar resource 的打包和生命周期集成。

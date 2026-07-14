@@ -1,8 +1,8 @@
 # Desktop Architecture
 
-- Status: Foundation in progress
+- Status: P2 minimal Tauri static shell complete
 - 本文记录最终 Windows 桌面架构的基础协议与后续实施边界。
-- 本轮尚未创建 Tauri 工程、PyInstaller sidecar、NSIS 安装器，也未迁移真实数据库。
+- 已有 FastAPI PyInstaller sidecar 与最小 Tauri 静态壳；尚未集成 sidecar 生命周期、安装器或真实数据库迁移。
 
 
 ## P0 Dependency Reproducibility
@@ -148,7 +148,7 @@ P1 adds the independently runnable Python sidecar while the overall desktop stat
 - `POST /desktop/shutdown` exists only in the sidecar security wrapper and asks Uvicorn to exit gracefully after returning its response.
 - Logs use a rotating UTF-8 file at `<user_data_root>\logs\sidecar.log`. P1 smoke tests use system temporary user-data roots only; no real learning database is migrated or read.
 - `desktop/sidecar/local_english_trainer_api.spec` builds a PyInstaller `onedir` sidecar without React static assets, user data, tests, or node modules. The executable has no independent console dependency.
-- Tauri, its shell configuration, and an installer still do not exist in this repository.
+- P1 本身未创建 Tauri 壳或安装器；P2 后已存在静态 Tauri 壳，sidecar 生命周期集成与安装器仍未实施。
 
 ## P1.5 External Data Root and Selected Database Migration
 
@@ -157,12 +157,20 @@ P1 adds the independently runnable Python sidecar while the overall desktop stat
 - `migrate_selected_database` 仅接受用户显式提供的绝对源 SQLite 文件和显式目标根目录。它以 SQLite 只读连接对源库执行 `PRAGMA integrity_check`，用 `sqlite3.Connection.backup` 写入目标 `data` 目录中的临时文件，再校验临时目标，并以 `os.replace` 原子替换正式目标。
 - 已存在的正式目标绝不覆盖；迁移失败会删除本轮临时文件，保留源数据库和既有目标。该流程不执行 schema upgrade、不搜索磁盘，也不把源路径写入普通运行日志。
 
+
+## P2 Minimal Tauri Static Shell
+
+- 根目录以精确锁定的本地 `@tauri-apps/cli` 管理桌面命令，前端业务依赖继续保留在 `frontend/package.json`。
+- `src-tauri/` 使用 Tauri 2，最小 capability 仅授予 `core:default`；未加入 Shell、文件系统、HTTP 或进程插件权限。
+- Vite 固定只绑定 `127.0.0.1:1420` 并启用 `strictPort`；保留既有 `/api` proxy。真实交互式 Windows 会话已通过 `tauri dev`，未启动 FastAPI 时 `/api` 的连接拒绝是预期现象。
+- `tauri build --debug --no-bundle` 已通过，生成的 debug exe 可在 Vite 未运行时启动 React 静态资源。
+- P2 不启动或打包 sidecar，不访问 SQLite，不接入用户数据目录、首次启动或迁移，也不生成 NSIS/MSI 安装包。
+- 下一阶段为 P2.25/P2.5 前置设计：定义平台无关的数据访问边界，并验证 PyInstaller onedir sidecar 作为 Tauri resource 的打包与生命周期方案。
+
 ### Desktop Packaging
 
-- 创建 Tauri 2 工程。
-- 将 React build 输出接入 Tauri 静态资源。
-- 用 PyInstaller onedir 打包 FastAPI sidecar。
-- 建立 sidecar 启动、端口选择和 `/health` version handshake。
+- P2.25/P2.5 设计并验证 PyInstaller onedir sidecar 作为 Tauri resource 的打包方式。
+- 建立 sidecar 启动、端口选择、/health version handshake 和退出生命周期。
 
 ### Desktop Data Safety
 

@@ -20,6 +20,7 @@ data/*.db
 .env.local
 
 # Frontend
+node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/build-output/
@@ -50,3 +51,5 @@ LocalEnglishTrainer/
 desktop-build/
 sidecar-ready-*.json
 sidecar-smoke-*/
+src-tauri/target/
+src-tauri/gen/schemas/
