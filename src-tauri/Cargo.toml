@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local English Trainer desktop shell"
 authors = ["Local English Trainer"]
 edition = "2024"
+default-run = "local-english-trainer-desktop"
 
 [features]
 default = ["custom-protocol"]
@@ -14,3 +15,6 @@ tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
 tauri = { version = "=2.11.5", features = [] }
+getrandom = "=0.3.4"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
