@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const SIDECAR_RELATIVE_DIR: &str = "sidecar/local-english-trainer-api";
 
-pub(crate) fn verify_resource_dir(resource_dir: &Path) -> Result<(), String> {
+pub fn verify_resource_dir(resource_dir: &Path) -> Result<(), String> {
     let sidecar_dir = resource_dir.join(SIDECAR_RELATIVE_DIR);
     let required_paths = [
         sidecar_dir.join("local-english-trainer-api.exe"),
@@ -22,9 +22,6 @@ pub(crate) fn verify_resource_dir(resource_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn sidecar_resource_dir(resource_dir: &Path) -> PathBuf {
-    resource_dir.join(SIDECAR_RELATIVE_DIR)
-}
 
 #[cfg(test)]
 mod tests {

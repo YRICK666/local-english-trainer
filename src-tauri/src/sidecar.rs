@@ -16,13 +16,17 @@ const ROOT_ENV: &str = "LOCAL_ENGLISH_TRAINER_USER_DATA_ROOT";
 const MODE_ENV: &str = "LOCAL_ENGLISH_TRAINER_MODE";
 const PORT_ENV: &str = "LOCAL_ENGLISH_TRAINER_PORT";
 const PREFIX: &str = "local-english-trainer-p2_5b-";
+const LIFECYCLE_PREFIX: &str = "local-english-trainer-p2_5c-";
 const MAX_DIAGNOSTIC_LINES: usize = 64;
 const MAX_HTTP_RESPONSE_BYTES: usize = 65_536;
 const MAX_HTTP_HEADER_BYTES: usize = 16_384;
 const READ_BUFFER_BYTES: usize = 4_096;
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const GRACEFUL_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(150);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SidecarState { NotStarted, Starting, Ready, Stopping, Stopped, Failed }
+pub enum SidecarState { NotStarted, Starting, Ready, Stopping, Stopped, Failed }
 
 #[derive(Debug)]
 struct LaunchConfig { exe: PathBuf, cwd: PathBuf, user_root: PathBuf, ready_file: PathBuf, token: String }
@@ -34,30 +38,36 @@ impl LaunchConfig {
     }
 }
 
-pub(crate) struct SidecarManager {
+pub struct SidecarManager {
     state: SidecarState,
     child: Option<Child>,
     token: Option<String>,
     endpoint: Option<u16>,
     temporary_root: Option<PathBuf>,
     readers: Vec<thread::JoinHandle<()>>,
+    temporary_prefix: &'static str,
 }
 
 impl Default for SidecarManager {
     fn default() -> Self {
-        Self { state: SidecarState::NotStarted, child: None, token: None, endpoint: None, temporary_root: None, readers: vec![] }
+        Self { state: SidecarState::NotStarted, child: None, token: None, endpoint: None, temporary_root: None, readers: vec![], temporary_prefix: PREFIX }
     }
 }
 
 impl SidecarManager {
-    pub(crate) fn state(&self) -> SidecarState { self.state }
+    pub fn state(&self) -> SidecarState { self.state }
+
+    pub fn start_lifecycle(&mut self, resource_dir: &Path) -> Result<(), &'static str> {
+        self.temporary_prefix = LIFECYCLE_PREFIX;
+        self.start(resource_dir)
+    }
 
     pub(crate) fn start(&mut self, resource_dir: &Path) -> Result<(), &'static str> {
         if self.state != SidecarState::NotStarted { return Err("sidecar manager is not idle"); }
         self.state = SidecarState::Starting;
         let result = (|| {
             let (exe, cwd) = resolve_resource(resource_dir)?;
-            let root = create_temp_root()?;
+            let root = create_temp_root(self.temporary_prefix)?;
             self.temporary_root = Some(root.clone());
             let config = LaunchConfig {
                 exe,
@@ -79,29 +89,85 @@ impl SidecarManager {
             self.state = SidecarState::Ready;
             Ok(())
         })();
-        if result.is_err() { self.state = SidecarState::Failed; let _ = self.stop(); }
+        if result.is_err() { self.state = SidecarState::Failed; let _ = self.force_cleanup(); }
         result
     }
 
-    pub(crate) fn stop(&mut self) -> Result<(), &'static str> {
+    pub fn shutdown_gracefully(&mut self) -> Result<(), &'static str> {
+        if self.state != SidecarState::Ready {
+            return Err("sidecar is not ready for graceful shutdown");
+        }
         self.state = SidecarState::Stopping;
-        if let Some(mut child) = self.child.take() { let _ = child.kill(); let _ = child.wait(); }
+        let endpoint = self.endpoint.ok_or("sidecar shutdown endpoint is unavailable")?;
+        let token = self.token.as_deref().ok_or("sidecar shutdown token is unavailable")?;
+        shutdown_http(endpoint, token)?;
+        eprintln!("LET_LIFECYCLE_SHUTDOWN_HTTP_OK");
+        let _ = std::io::stderr().flush();
+        self.wait_for_natural_exit(GRACEFUL_EXIT_TIMEOUT)?;
+        self.cleanup_after_reaped()
+    }
+
+    pub fn force_cleanup(&mut self) -> Result<(), &'static str> {
+        self.state = SidecarState::Stopping;
+        if let Some(child) = self.child.as_mut() {
+            let already_exited = child.try_wait().map_err(|_| "sidecar status check failed")?.is_some();
+            if !already_exited {
+                child.kill().map_err(|_| "sidecar forced cleanup failed")?;
+            }
+            child.wait().map_err(|_| "sidecar reap failed")?;
+        }
+        self.child = None;
+        self.cleanup_after_reaped()
+    }
+
+    pub fn terminate_child_for_fault(&mut self) -> Result<(), &'static str> {
+        let child = self.child.as_mut().ok_or("sidecar child is unavailable")?;
+        if child.try_wait().map_err(|_| "sidecar status check failed")?.is_none() {
+            child.kill().map_err(|_| "sidecar fault termination failed")?;
+        }
+        Ok(())
+    }
+    pub fn poll_for_exit(&mut self) -> Result<bool, &'static str> {
+        let Some(child) = self.child.as_mut() else {
+            return Ok(true);
+        };
+        if child.try_wait().map_err(|_| "sidecar status check failed")?.is_none() {
+            return Ok(false);
+        }
+        child.wait().map_err(|_| "sidecar reap failed")?;
+        self.child = None;
+        Ok(true)
+    }
+
+    fn wait_for_natural_exit(&mut self, timeout: Duration) -> Result<(), &'static str> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self.poll_for_exit()? {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err("sidecar graceful shutdown timed out");
+            }
+            thread::sleep(EXIT_POLL_INTERVAL);
+        }
+    }
+
+    fn cleanup_after_reaped(&mut self) -> Result<(), &'static str> {
         for reader in self.readers.drain(..) { let _ = reader.join(); }
         self.token = None;
         self.endpoint = None;
-        if let Some(root) = self.temporary_root.take() { remove_temp_root(&root)?; }
+        if let Some(root) = self.temporary_root.take() { remove_temp_root(&root, self.temporary_prefix)?; }
         self.state = SidecarState::Stopped;
         Ok(())
     }
 }
+impl Drop for SidecarManager { fn drop(&mut self) { let _ = self.force_cleanup(); } }
 
-impl Drop for SidecarManager { fn drop(&mut self) { let _ = self.stop(); } }
-
-pub(crate) fn run_startup_probe(resource_dir: &Path) -> Result<(), &'static str> {
+pub fn run_startup_probe(resource_dir: &Path) -> Result<(), &'static str> {
     let mut manager = SidecarManager::default();
     manager.start(resource_dir)?;
     if manager.state() != SidecarState::Ready { return Err("sidecar did not reach ready state"); }
-    manager.stop()?;
+    manager.force_cleanup()?;
     eprintln!("LOCAL_ENGLISH_TRAINER_SIDECAR_CLEANUP_COMPLETE");
     Ok(())
 }
@@ -115,19 +181,19 @@ fn resolve_resource(resource_dir: &Path) -> Result<(PathBuf, PathBuf), &'static 
     Ok((exe, root))
 }
 
-fn create_temp_root() -> Result<PathBuf, &'static str> {
+fn create_temp_root(prefix: &str) -> Result<PathBuf, &'static str> {
     let mut bytes = [0u8; 16];
     fill(&mut bytes).map_err(|_| "secure random source failed")?;
-    let root = std::env::temp_dir().join(format!("{PREFIX}{}", hex(&bytes)));
+    let root = std::env::temp_dir().join(format!("{prefix}{}", hex(&bytes)));
     if root.exists() { return Err("temporary root collision"); }
     fs::create_dir_all(&root).map_err(|_| "temporary root creation failed")?;
     Ok(root)
 }
 
-fn remove_temp_root(root: &Path) -> Result<(), &'static str> {
+fn remove_temp_root(root: &Path, prefix: &str) -> Result<(), &'static str> {
     let temp = fs::canonicalize(std::env::temp_dir()).map_err(|_| "temp directory unavailable")?;
     let root = fs::canonicalize(root).map_err(|_| "temporary root unavailable")?;
-    if !root.starts_with(&temp) || !root.file_name().unwrap_or_default().to_string_lossy().starts_with(PREFIX) { return Err("temporary root cleanup was rejected"); }
+    if !root.starts_with(&temp) || !root.file_name().unwrap_or_default().to_string_lossy().starts_with(prefix) { return Err("temporary root cleanup was rejected"); }
     fs::remove_dir_all(root).map_err(|_| "temporary root cleanup failed")
 }
 
@@ -211,20 +277,40 @@ impl HealthHttpError {
 struct HttpHead { status_line: String, header_names: Vec<String>, content_length: Option<usize>, transfer_encoding: Option<String> }
 
 fn health(port: u16, token: &str) -> Result<(), &'static str> {
-    let addr = format!("127.0.0.1:{port}");
-    let mut stream = TcpStream::connect_timeout(&addr.parse().map_err(|_| "health endpoint invalid")?, Duration::from_secs(5)).map_err(|_| "health connection failed")?;
-    stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|_| "health timeout setup failed")?;
-    stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(|_| "health timeout setup failed")?;
+    let mut stream = connect_loopback(port, "health")?;
     stream.write_all(&build_health_request(token)).map_err(|_| "health request failed")?;
     let body = read_bounded_http_response(&mut stream).map_err(|error| error.message())?;
     validate_health(&body)?;
     Ok(())
 }
 
+fn shutdown_http(port: u16, token: &str) -> Result<(), &'static str> {
+    let mut stream = connect_loopback(port, "shutdown")?;
+    stream.write_all(&build_shutdown_request(token)).map_err(|_| "shutdown request failed")?;
+    let body = read_bounded_http_response(&mut stream).map_err(|error| error.message())?;
+    crate::sidecar_protocol::validate_shutdown(&body)?;
+    Ok(())
+}
+
+fn connect_loopback(port: u16, operation: &'static str) -> Result<TcpStream, &'static str> {
+    let addr = format!("127.0.0.1:{port}");
+    let stream = TcpStream::connect_timeout(
+        &addr.parse().map_err(|_| "sidecar endpoint invalid")?,
+        SHUTDOWN_TIMEOUT,
+    )
+    .map_err(|_| if operation == "shutdown" { "shutdown connection failed" } else { "health connection failed" })?;
+    stream.set_read_timeout(Some(SHUTDOWN_TIMEOUT)).map_err(|_| "sidecar timeout setup failed")?;
+    stream.set_write_timeout(Some(SHUTDOWN_TIMEOUT)).map_err(|_| "sidecar timeout setup failed")?;
+    Ok(stream)
+}
+
 fn build_health_request(token: &str) -> Vec<u8> {
     format!("GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Local-English-Trainer-Token: {token}\r\nAccept: application/json\r\nConnection: close\r\n\r\n").into_bytes()
 }
 
+fn build_shutdown_request(token: &str) -> Vec<u8> {
+    format!("POST /desktop/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Local-English-Trainer-Token: {token}\r\nAccept: application/json\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes()
+}
 fn read_bounded_http_response<R: Read>(reader: &mut R) -> Result<Vec<u8>, HealthHttpError> {
     let mut response = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut scratch = [0u8; READ_BUFFER_BYTES];
@@ -340,7 +426,7 @@ mod tests {
     }
     fn valid_response() -> Vec<u8> { response("200 OK", &[("Content-Type", "application/json; charset=utf-8".into()), ("Content-Length", HEALTH.len().to_string())], HEALTH) }
     #[test] fn tokens_are_hex_and_unique() { let a = generate_token().unwrap(); let b = generate_token().unwrap(); assert_eq!(a.len(), 64); assert_ne!(a, b); }
-    #[test] fn temp_root_is_under_temp() { let root = create_temp_root().unwrap(); assert!(root.starts_with(std::env::temp_dir())); remove_temp_root(&root).unwrap(); }
+    #[test] fn temp_root_is_under_temp() { let root = create_temp_root(PREFIX).unwrap(); assert!(root.starts_with(std::env::temp_dir())); remove_temp_root(&root, PREFIX).unwrap(); }
     #[test] fn command_keeps_token_out_of_args() { let root = std::env::temp_dir(); let config = LaunchConfig { exe: root.join("a.exe"), cwd: root.clone(), user_root: root.join("u"), ready_file: root.join("r"), token: "secret".into() }; assert!(!config.safe_summary().contains("secret")); }
     #[test] fn reads_valid_content_length_response_and_validates_json() { let mut reader = Cursor::new(valid_response()); let body = read_bounded_http_response(&mut reader).unwrap(); assert!(validate_health(&body).is_ok()); }
     #[test] fn accepts_case_insensitive_header_names() { let raw = response("200 OK", &[("cOnTeNt-LeNgTh", HEALTH.len().to_string())], HEALTH); assert_eq!(read_bounded_http_response(&mut Cursor::new(raw)).unwrap(), HEALTH.as_bytes()); }
@@ -359,4 +445,19 @@ mod tests {
     #[test] fn rejects_large_headers_and_bodies() { let raw = response("200 OK", &[("X-Fill", "x".repeat(MAX_HTTP_HEADER_BYTES))], ""); assert_eq!(read_bounded_http_response(&mut Cursor::new(raw)), Err(HealthHttpError::HeaderTooLarge)); let raw = response("200 OK", &[("Content-Length", (MAX_HTTP_RESPONSE_BYTES + 1).to_string())], ""); assert_eq!(read_bounded_http_response(&mut Cursor::new(raw)), Err(HealthHttpError::BodyTooLarge)); }
     #[test] fn rejects_invalid_content_type_and_invalid_health_json() { let raw = response("200 OK", &[("Content-Type", "text/plain".into()), ("Content-Length", "2".into())], "{}"); assert_eq!(read_bounded_http_response(&mut Cursor::new(raw)), Err(HealthHttpError::InvalidContentType)); assert!(validate_health(b"not json").is_err()); }
     #[test] fn rejects_health_contract_mismatch_and_request_does_not_leak_token() { assert!(validate_health(br#"{"status":"ok","app_version":"wrong","api_protocol_version":1,"schema_version":1,"run_mode":"desktop_production"}"#).is_err()); assert!(validate_health(br#"{"status":"ok","app_version":"0.1.0","api_protocol_version":1,"schema_version":1,"run_mode":"wrong"}"#).is_err()); let request = build_health_request("secret-token"); assert!(request.windows(b"X-Local-English-Trainer-Token: secret-token".len()).any(|part| part == b"X-Local-English-Trainer-Token: secret-token")); assert!(!HealthHttpError::Timeout.message().contains("secret-token")); }
+    #[test] fn shutdown_request_is_token_header_only_and_content_length_framed() {
+        let request = String::from_utf8(build_shutdown_request("secret-token")).unwrap();
+        assert!(request.starts_with("POST /desktop/shutdown HTTP/1.1\r\n"));
+        assert!(request.contains("X-Local-English-Trainer-Token: secret-token\r\n"));
+        assert!(request.contains("Content-Length: 0\r\n"));
+        assert!(request.ends_with("Connection: close\r\n\r\n"));
+        assert!(!request.contains("?token="));
+    }
+    #[test] fn shutdown_response_uses_existing_bounded_http_framing() {
+        let body = r#"{"status":"shutting_down"}"#;
+        let raw = response("200 OK", &[("Content-Type", "application/json".into()), ("Content-Length", body.len().to_string())], body);
+        let parsed = read_bounded_http_response(&mut Cursor::new(raw)).unwrap();
+        assert!(crate::sidecar_protocol::validate_shutdown(&parsed).is_ok());
+        assert!(crate::sidecar_protocol::validate_shutdown(br#"{"status":"not-ready"}"#).is_err());
+    }
 }

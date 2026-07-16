@@ -1,8 +1,4 @@
-#[path = "../sidecar.rs"]
-mod sidecar;
-#[path = "../sidecar_protocol.rs"]
-mod sidecar_protocol;
-
+use local_english_trainer_desktop::sidecar;
 use std::{env, path::PathBuf, process::ExitCode};
 
 fn main() -> ExitCode {

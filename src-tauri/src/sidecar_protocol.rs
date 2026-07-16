@@ -26,6 +26,15 @@ pub(crate) fn validate_health(raw: &[u8]) -> Result<HealthPayload, &'static str>
     Ok(health)
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ShutdownPayload { status: String }
+
+pub fn validate_shutdown(raw: &[u8]) -> Result<(), &'static str> {
+    if raw.len() > 65_536 { return Err("shutdown response exceeds size limit"); }
+    let shutdown: ShutdownPayload = serde_json::from_slice(raw).map_err(|_| "shutdown response is not valid JSON")?;
+    if shutdown.status != "shutting_down" { return Err("shutdown response failed protocol validation"); }
+    Ok(())
+}
 fn validate_versions(app: &str, api: u32, schema: u32) -> Result<(), &'static str> {
     let expected: VersionFile = serde_json::from_str(include_str!("../../version.json")).map_err(|_| "embedded version contract is invalid")?;
     if app != expected.app_version || api != expected.api_protocol_version || schema != expected.schema_version { return Err("sidecar version contract does not match"); }
@@ -44,4 +53,6 @@ mod tests { use super::*;
  #[test] fn accepts_ready() { assert!(validate_ready(&ready(),7).is_ok()); }
  #[test] fn rejects_wrong_pid_and_sensitive_fields() { assert!(validate_ready(&ready(),8).is_err()); assert!(validate_ready(br#"{"token":"x"}"#,7).is_err()); }
  #[test] fn rejects_wrong_host() { let raw=String::from_utf8(ready()).unwrap().replace("127.0.0.1","0.0.0.0"); assert!(validate_ready(raw.as_bytes(),7).is_err()); }
+ #[test] fn accepts_exact_shutdown_contract() { assert!(validate_shutdown(br#"{"status":"shutting_down"}"#).is_ok()); }
+ #[test] fn rejects_shutdown_malformed_or_wrong_status() { assert!(validate_shutdown(b"not json").is_err()); assert!(validate_shutdown(br#"{"status":"ok"}"#).is_err()); assert!(validate_shutdown(&vec![b'x'; 65_537]).is_err()); }
 }
