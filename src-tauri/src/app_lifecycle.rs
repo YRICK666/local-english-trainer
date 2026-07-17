@@ -1,4 +1,8 @@
-use crate::sidecar::{SidecarManager, SidecarState};
+use crate::{
+    learning_proxy::{ProxyError, ReadingPackSummary},
+    sidecar::{SidecarManager, SidecarState},
+};
+
 use std::{
     io::Write,
     path::PathBuf,
@@ -94,6 +98,26 @@ impl AppSidecarLifecycle {
 
     pub fn fault_mode(&self) -> FaultMode {
         self.fault_mode
+    }
+
+    pub fn list_reading_packs(&self) -> Result<Vec<ReadingPackSummary>, ProxyError> {
+        let client = {
+            let inner = self.inner.lock().expect("lifecycle state mutex poisoned");
+            if !self.enabled || inner.state != SidecarState::Ready {
+                return Err(ProxyError::Unavailable);
+            }
+            inner
+                .manager
+                .as_ref()
+                .ok_or(ProxyError::Unavailable)?
+                .business_client()?
+        };
+        client.list_reading_packs()
+    }
+
+    pub fn list_reading_packs_command(&self) -> Result<Vec<ReadingPackSummary>, String> {
+        self.list_reading_packs()
+            .map_err(|error| error.safe_message().to_owned())
     }
 
     pub fn start_background(self: &Arc<Self>, resource_dir: PathBuf) {
@@ -322,6 +346,21 @@ mod tests {
         assert!(!state.enabled());
         assert!(!state.startup_started.load(Ordering::Acquire));
         assert_eq!(state.request_close(), CloseDecision::Allow);
+    }
+
+    #[test]
+    fn disabled_lifecycle_rejects_business_proxy_without_starting_a_sidecar() {
+        let state = AppSidecarLifecycle::new(false);
+        assert_eq!(state.list_reading_packs(), Err(ProxyError::Unavailable));
+    }
+
+    #[test]
+    fn command_bridge_returns_only_a_safe_error_when_lifecycle_is_disabled() {
+        let state = AppSidecarLifecycle::new(false);
+        assert_eq!(
+            state.list_reading_packs_command(),
+            Err("The local learning service is unavailable.".to_owned()),
+        );
     }
 
     #[test]

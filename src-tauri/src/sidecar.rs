@@ -1,4 +1,7 @@
-use crate::sidecar_protocol::{validate_health, validate_ready};
+use crate::{
+    learning_proxy::{parse_reading_pack_list, read_json_response, ProxyError, ProxyOperation, ReadingPackSummary},
+    sidecar_protocol::{validate_health, validate_ready},
+};
 use getrandom::fill;
 use std::{
     fs,
@@ -22,6 +25,7 @@ const MAX_HTTP_RESPONSE_BYTES: usize = 65_536;
 const MAX_HTTP_HEADER_BYTES: usize = 16_384;
 const READ_BUFFER_BYTES: usize = 4_096;
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const BUSINESS_TIMEOUT: Duration = Duration::from_secs(10);
 const GRACEFUL_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(150);
 
@@ -35,6 +39,22 @@ struct LaunchConfig { exe: PathBuf, cwd: PathBuf, user_root: PathBuf, ready_file
 impl LaunchConfig {
     fn safe_summary(&self) -> String {
         format!("sidecar exe={} cwd={}", self.exe.file_name().unwrap_or_default().to_string_lossy(), self.cwd.file_name().unwrap_or_default().to_string_lossy())
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct SidecarBusinessClient {
+    endpoint: u16,
+    token: String,
+}
+
+impl SidecarBusinessClient {
+    pub(crate) fn list_reading_packs(&self) -> Result<Vec<ReadingPackSummary>, ProxyError> {
+        let mut stream = connect_business_loopback(self.endpoint)?;
+        let request = build_business_request(ProxyOperation::ListReadingPacks, &self.token);
+        stream.write_all(&request).map_err(|_| ProxyError::Unavailable)?;
+        let body = read_json_response(&mut stream)?;
+        parse_reading_pack_list(&body)
     }
 }
 
@@ -57,6 +77,15 @@ impl Default for SidecarManager {
 impl SidecarManager {
     pub fn state(&self) -> SidecarState { self.state }
 
+    pub(crate) fn business_client(&self) -> Result<SidecarBusinessClient, ProxyError> {
+        if self.state != SidecarState::Ready {
+            return Err(ProxyError::Unavailable);
+        }
+        Ok(SidecarBusinessClient {
+            endpoint: self.endpoint.ok_or(ProxyError::Unavailable)?,
+            token: self.token.clone().ok_or(ProxyError::Unavailable)?,
+        })
+    }
     pub fn start_lifecycle(&mut self, resource_dir: &Path) -> Result<(), &'static str> {
         self.temporary_prefix = LIFECYCLE_PREFIX;
         self.start(resource_dir)
@@ -275,6 +304,27 @@ impl HealthHttpError {
 
 #[derive(Debug)]
 struct HttpHead { status_line: String, header_names: Vec<String>, content_length: Option<usize>, transfer_encoding: Option<String> }
+
+fn connect_business_loopback(port: u16) -> Result<TcpStream, ProxyError> {
+    let addr = format!("127.0.0.1:{port}");
+    let stream = TcpStream::connect_timeout(
+        &addr.parse().map_err(|_| ProxyError::Unavailable)?,
+        BUSINESS_TIMEOUT,
+    )
+    .map_err(|_| ProxyError::Unavailable)?;
+    stream.set_read_timeout(Some(BUSINESS_TIMEOUT)).map_err(|_| ProxyError::Unavailable)?;
+    stream.set_write_timeout(Some(BUSINESS_TIMEOUT)).map_err(|_| ProxyError::Unavailable)?;
+    Ok(stream)
+}
+
+fn build_business_request(operation: ProxyOperation, token: &str) -> Vec<u8> {
+    format!(
+        "{} {} HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Local-English-Trainer-Token: {token}\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+        operation.method(),
+        operation.path(),
+    )
+    .into_bytes()
+}
 
 fn health(port: u16, token: &str) -> Result<(), &'static str> {
     let mut stream = connect_loopback(port, "health")?;
